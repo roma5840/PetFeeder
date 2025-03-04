@@ -14,17 +14,17 @@
    ```
 
 NOTES DON'T MIND ME LUL:
-Current features (v6):
+Current features (v7 -> undled to 7z):
    > Delete Account and Logout in petfeeder->index
 
    > Login & Register
 
    > Register -> Password checklist(number, uppercase, lowercase, special, min. 6 char)
 
+   > Captcha (only in login -> numeric captcha)
+
 
 Planned:
-   > Captcha (possibly math captcha on login page only)
-
    > Add sidebar drawer on homepage (petfeeder->index)
 
    > Sidebar drawer includes:\
