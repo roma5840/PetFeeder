@@ -8,6 +8,10 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [captchaAnswer, setCaptchaAnswer] = useState("");
+  const [num1, setNum1] = useState(0);
+  const [num2, setNum2] = useState(0);
+  const [expectedAnswer, setExpectedAnswer] = useState(0);
   const router = useRouter();
   const navigation = useNavigation();
 
@@ -25,12 +29,33 @@ export default function Login() {
     };
   }, [navigation]);
 
+  useEffect(() => {
+    generateCaptcha();
+  }, []);
+
+  const generateCaptcha = () => {
+    const n1 = Math.floor(Math.random() * 10) + 1;
+    const n2 = Math.floor(Math.random() * 10) + 1;
+    setNum1(n1);
+    setNum2(n2);
+    setExpectedAnswer(n1 + n2);
+    setCaptchaAnswer("");
+  };
+
   const handleLogin = async () => {
     if (!email || !password) {
       Alert.alert("Error", "Please fill in all fields");
       return;
     }
 
+    if (parseInt(captchaAnswer) !== expectedAnswer) {
+      Alert.alert("Error", "Incorrect CAPTCHA answer");
+      generateCaptcha();
+      return;
+    }
+
+    setLoading(true);
+    
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       if (!userCredential.user.emailVerified) {
@@ -44,6 +69,7 @@ export default function Login() {
       router.replace("/");
     } catch (error) {
       Alert.alert("Login Error", error.message);
+      generateCaptcha();
     } finally {
       setLoading(false);
     }
@@ -69,6 +95,17 @@ export default function Login() {
         onChangeText={setPassword}
         secureTextEntry
       />
+
+      <View style={styles.captchaContainer}>
+        <Text style={styles.captchaQuestion}>What is {num1} + {num2}?</Text>
+        <TextInput
+          style={styles.captchaInput}
+          placeholder="Enter answer"
+          value={captchaAnswer}
+          onChangeText={setCaptchaAnswer}
+          keyboardType="numeric"
+        />
+      </View>
 
       <TouchableOpacity 
         style={styles.button} 
@@ -134,5 +171,20 @@ const styles = StyleSheet.create({
   link: {
     color: "#007bff",
     fontWeight: "bold",
+  },
+  captchaContainer: {
+    marginBottom: 15,
+  },
+  captchaQuestion: {
+    fontSize: 16,
+    marginBottom: 5,
+  },
+  captchaInput: {
+    height: 50,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    padding: 10,
+    backgroundColor: "#fff",
   },
 });
