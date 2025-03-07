@@ -16,6 +16,8 @@ export default function Register() {
   const [hasMinLength, setHasMinLength] = useState(false);
   const router = useRouter();
   const navigation = useNavigation();
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   useEffect(() => {
     navigation.setOptions({
@@ -106,24 +108,45 @@ export default function Register() {
         keyboardType="email-address"
       />
       
-      <TextInput
-        style={styles.input}
-        placeholder="Password"
-        value={password}
-        onChangeText={(text) => {
-          setPassword(text);
-          validatePassword(text);
-        }}
-        secureTextEntry
-      />
-      
-      <TextInput
-        style={styles.input}
-        placeholder="Confirm Password"
-        value={confirmPassword}
-        onChangeText={setConfirmPassword}
-        secureTextEntry
-      />
+      <View style={styles.passwordContainer}>
+        <TextInput
+          style={styles.input}
+          placeholder="Password"
+          value={password}
+          onChangeText={(text) => {
+            setPassword(text);
+            validatePassword(text);
+          }}
+          secureTextEntry={!showPassword}
+        />
+        <TouchableOpacity
+          style={styles.eyeButton}
+          onPress={() => setShowPassword(!showPassword)}
+        >
+          <Text style={styles.eyeButtonText}>
+            {showPassword ? 'Hide' : 'Show'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Confirm Password Input */}
+      <View style={styles.passwordContainer}>
+        <TextInput
+          style={styles.input}
+          placeholder="Confirm Password"
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          secureTextEntry={!showConfirmPassword}
+        />
+        <TouchableOpacity
+          style={styles.eyeButton}
+          onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+        >
+          <Text style={styles.eyeButtonText}>
+            {showConfirmPassword ? 'Hide' : 'Show'}
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Password Requirements Checklist */}
       <View style={styles.checklist}>
@@ -185,6 +208,7 @@ const styles = StyleSheet.create({
     borderColor: "#ddd",
     borderRadius: 8,
     padding: 10,
+    paddingRight: 50,
     marginBottom: 15,
     backgroundColor: "#fff",
   },
@@ -226,5 +250,20 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
     marginTop: 10,
+  },
+  passwordContainer: {
+    position: 'relative',
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 10,
+    top: '50%',
+    transform: [{ translateY: -23 }],
+    padding: 5,
+  },
+  eyeButtonText: {
+    color: "#007bff",
+    fontWeight: "bold",
+    fontSize: 14,
   },
 });

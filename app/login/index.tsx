@@ -14,6 +14,7 @@ export default function Login() {
   const [expectedAnswer, setExpectedAnswer] = useState(0);
   const router = useRouter();
   const navigation = useNavigation();
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     navigation.setOptions({
@@ -88,13 +89,23 @@ export default function Login() {
         keyboardType="email-address"
       />
       
-      <TextInput
-        style={styles.input}
-        placeholder="Password"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-      />
+      <View style={styles.passwordContainer}>
+        <TextInput
+          style={styles.input}
+          placeholder="Password"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry={!showPassword}
+        />
+        <TouchableOpacity
+          style={styles.eyeButton}
+          onPress={() => setShowPassword(!showPassword)}
+        >
+          <Text style={styles.eyeButtonText}>
+            {showPassword ? 'Hide' : 'Show'}
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       <View style={styles.captchaContainer}>
         <Text style={styles.captchaQuestion}>What is {num1} + {num2}?</Text>
@@ -149,6 +160,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 10,
     marginBottom: 15,
+    paddingRight: 50,
     backgroundColor: "#fff",
   },
   button: {
@@ -186,5 +198,20 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 10,
     backgroundColor: "#fff",
+  },
+  passwordContainer: {
+    position: 'relative',
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 10,
+    top: '50%',
+    transform: [{ translateY: -23 }],
+    padding: 5,
+  },
+  eyeButtonText: {
+    color: "#007bff",
+    fontWeight: "bold",
+    fontSize: 14,
   },
 });
