@@ -1,4 +1,4 @@
-// UPDATED PETFEEDER UI (current v: v1.1)
+// UPDATED PETFEEDER UI
 // Changes made by me (Ryan):
 
 // v1:
