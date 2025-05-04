@@ -1,13 +1,44 @@
-// PetFeeder.js
-import React, { useState, useEffect } from "react";
+// UPDATED PETFEEDER UI (current v: v1.0)
+// Changes made by me (Ryan):
+// 1. UI UPDATES
+// 2. Feeder Status 
+// 3. Feed Now button
+// 4. Update Pet Details
+// 5. Added more error handling
+// NEXT STEPS: ESP32 code needs to use the Firebase library to listen to users/{uid}/commands/feedNow
+
+// IGNORE (harmless error):
+// Error listening to schedules
+// Error listening to feeder status
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  FlatList,
+  Switch,
+  Modal,
+  ActivityIndicator,
+  ScrollView,
+} from "react-native";
 import Icon from "react-native-vector-icons/Ionicons";
-import {  View,  Text,  TextInput,  TouchableOpacity,  StyleSheet,  Alert,  FlatList,  Switch, Modal, } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { getAuth, deleteUser, signOut } from "firebase/auth";
-import { getDatabase, ref, get, remove, set } from "firebase/database";
+import {
+  getDatabase,
+  ref,
+  get,
+  remove,
+  set,
+  update,
+  onValue,
+  off,
+} from "firebase/database";
 
 export default function PetFeeder() {
-  // State Variables
   const [petName, setPetName] = useState("");
   const [petType, setPetType] = useState("");
   const [petWeight, setPetWeight] = useState("");
@@ -16,130 +47,314 @@ export default function PetFeeder() {
   const [selectedTime, setSelectedTime] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
   const [schedules, setSchedules] = useState([]);
-  const [showModal, setShowModal] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [petDetails, setPetDetails] = useState({ name: '', type: '', weight: ''});
-  const [tempDetails, setTempDetails] = useState({ name: '', type: '', weight: '' });
-  const [settingsVisible, setSettingsVisible] = useState(false);
-  const [updateModalVisible, setUpdateModalVisible] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isFeeding, setIsFeeding] = useState(false);
 
-  // Firebase Auth and DB
+  const [showFeedingGuideModal, setShowFeedingGuideModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showUpdatePetModal, setShowUpdatePetModal] = useState(false);
+
+  const [tempPetDetails, setTempPetDetails] = useState({ name: '', type: '', weight: '' });
+
+  const [feederOnline, setFeederOnline] = useState(false);
+  const [lastFeedInfo, setLastFeedInfo] = useState("N/A");
+  const [foodLevelStatus, setFoodLevelStatus] = useState("Unknown");
+  const [feederError, setFeederError] = useState("None");
+
   const auth = getAuth();
   const db = getDatabase();
   const user = auth.currentUser;
 
-  // Fetch Pet Data
-  useEffect(() => {
-    const fetchPetData = async () => {
-      if (user) {
-        try {
-          const userRef = ref(db, `users/${user.uid}`);
-          const snapshot = await get(userRef);
 
-          if (snapshot.exists()) {
-            const data = snapshot.val();
-            setPetName(data.petName || "Unknown");
-            setPetType(data.petType || "Unknown");
-            if (data.petWeight) {
-              setPetWeight(data.petWeight);
-              const calculatedWeight = calculateRecommendedWeight(data.petWeight);
-              setRecommendedWeight(calculatedWeight);
-              setManualWeight(calculatedWeight);
-            }
-            if (data.schedules) {
-              setSchedules(Object.values(data.schedules));
-            }
-          }
-        } catch (error) {
-          console.error("Error fetching data:", error);
-        }
-      }
-    };
-
-    fetchPetData();
-  }, [user]);
-
-    // 🔹 ADDED FEATURE: Fetch Pet Details from Firebase
-    const fetchPetDetails = async () => {
-      if (!user) return;
-      const docRef = doc(db, 'users', user.uid);
-      const docSnap = await getDoc(docRef);
-  
-      if (docSnap.exists()) {
-        setPetDetails(docSnap.data().petDetails || {});
-      }
-    };
-
-  // Calculate Recommended Weight
-  const calculateRecommendedWeight = (weight) => {
-    if (weight <= 5) return "50";
-    if (weight > 5 && weight <= 10) return "120";
-    if (weight > 10 && weight <= 20) return "200";
-    if (weight > 20 && weight <= 30) return "300";
-    if (weight > 30 && weight <= 40) return "400";
+  const calculateRecommendedWeight = useCallback((weight) => {
+    const numericWeight = parseFloat(weight);
+    if (isNaN(numericWeight)) return "N/A";
+    if (numericWeight <= 5) return "50";
+    if (numericWeight > 5 && numericWeight <= 10) return "120";
+    if (numericWeight > 10 && numericWeight <= 20) return "200";
+    if (numericWeight > 20 && numericWeight <= 30) return "300";
+    if (numericWeight > 30 && numericWeight <= 40) return "400";
     return "500";
-  };
+  }, []);
 
-  // Add Feeding Time
-  const handleAddFeedingTime = () => {
-    setSelectedTime(new Date()); // Reset time to ensure picker opens
-    setShowPicker(true);
-  };
-  
-  
-  // Handle Time Selection
-  const onTimeSelected = async (event, time) => {
-    if (event.type === "dismissed" || !time) {
-      setShowPicker(false);
+  useEffect(() => {
+    if (!user) {
+      setIsLoading(false);
       return;
     }
-  
-    const newSchedule = {
-      id: Date.now().toString(),
-      time: time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      weight: manualWeight || recommendedWeight, // Use manual or recommended weight
-      isOn: true,
+
+    setIsLoading(true);
+    const userRef = ref(db, `users/${user.uid}`);
+    const statusRef = ref(db, `users/${user.uid}/feederStatus`);
+    const schedulesRef = ref(db, `users/${user.uid}/schedules`);
+
+    let statusListener;
+    let schedulesListener;
+
+    get(userRef).then((snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        setPetName(data.petName || "Unknown");
+        setPetType(data.petType || "Unknown");
+        setPetWeight(data.petWeight || "");
+
+        if (data.petWeight) {
+          const recWeight = calculateRecommendedWeight(data.petWeight);
+          setRecommendedWeight(recWeight);
+          if (!manualWeight) setManualWeight(recWeight !== "N/A" ? recWeight : "100");
+        } else {
+            setRecommendedWeight("N/A");
+            if (!manualWeight) setManualWeight("100");
+        }
+      }
+
+       if (!manualWeight) {
+        const recWeight = calculateRecommendedWeight(petWeight);
+        setManualWeight(recWeight !== "N/A" ? recWeight : "100");
+      }
+    }).catch(error => {
+      console.error("Error fetching initial pet data:", error);
+      // Alert.alert("Error", "Could not fetch pet details.");
+    }).finally(() => {
+       // a
+    });
+
+    statusListener = onValue(statusRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const statusData = snapshot.val();
+        setFeederOnline(statusData.isOnline || false);
+        setFoodLevelStatus(statusData.foodLevel || "Unknown");
+        setFeederError(statusData.error || "None");
+        if (statusData.lastFeedTimestamp) {
+          const date = new Date(statusData.lastFeedTimestamp);
+          const amount = statusData.lastFeedAmount || 'N/A';
+          setLastFeedInfo(`${date.toLocaleTimeString()} (${amount}g)`);
+        } else {
+          setLastFeedInfo("N/A");
+        }
+      } else {
+        setFeederOnline(false);
+        setFoodLevelStatus("Unknown");
+        setFeederError("None");
+        setLastFeedInfo("N/A");
+      }
+    }, (error) => {
+        console.error("Error listening to feeder status:", error);
+    });
+
+    schedulesListener = onValue(schedulesRef, (snapshot) => {
+        const schedulesData = snapshot.val();
+        setSchedules(schedulesData ? Object.values(schedulesData) : []);
+        setIsLoading(false);
+    }, (error) => {
+        console.error("Error listening to schedules:", error);
+        // Alert.alert("Error", "Could not load schedules in real-time.");
+        setIsLoading(false);
+    });
+
+
+    return () => {
+      if (statusListener) off(statusRef, 'value', statusListener);
+      if (schedulesListener) off(schedulesRef, 'value', schedulesListener);
     };
-  
-    const updatedSchedules = [...schedules, newSchedule];
-    setSchedules(updatedSchedules);
-  
-    if (user) {
-      const schedulesRef = ref(db, `users/${user.uid}/schedules`);
-      await set(schedulesRef, updatedSchedules);
-    }
-  
-    // Reset and close picker after selection
-    setShowPicker(false);
+
+  }, [user, db, calculateRecommendedWeight]);
+
+
+  const handleAddFeedingTime = () => {
+    if (!manualWeight || isNaN(parseInt(manualWeight)) || parseInt(manualWeight) <= 0) {
+        Alert.alert("Invalid Weight", "Please enter a valid positive number for the feeding weight before selecting a time.");
+        return;
+      }
     setSelectedTime(new Date());
+    setShowPicker(true);
   };
-  
 
-  // Toggle Schedule Switch
+  const onTimeSelected = async (event, time) => {
+    setShowPicker(false);
+
+    if (event.type === "set" && time) {
+        const weightToSave = parseInt(manualWeight);
+        if (isNaN(weightToSave) || weightToSave <= 0) {
+            Alert.alert("Invalid Weight", "Cannot save schedule with invalid weight.");
+            return;
+        }
+
+      const newSchedule = {
+        id: Date.now().toString(),
+        time: time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        weight: weightToSave.toString(),
+        isOn: true,
+      };
+
+      const updatedSchedules = [...schedules, newSchedule];
+      setSchedules(updatedSchedules);
+      setIsSaving(true);
+
+      if (user) {
+        const newScheduleRef = ref(db, `users/${user.uid}/schedules/${newSchedule.id}`);
+        try {
+          await set(newScheduleRef, newSchedule);
+          // Alert.alert("Success", "Schedule added!"); // optional success message
+        } catch (error) {
+          console.error("Error saving schedule:", error);
+          Alert.alert("Error", "Failed to save schedule. Please try again.");
+          setSchedules(schedules.filter(s => s.id !== newSchedule.id));
+        } finally {
+          setIsSaving(false);
+        }
+      }
+    }
+     setSelectedTime(new Date());
+  };
+
   const toggleSchedule = async (id) => {
-    const updatedSchedules = schedules.map((item) =>
-      item.id === id ? { ...item, isOn: !item.isOn } : item
-    );
+    const scheduleIndex = schedules.findIndex((item) => item.id === id);
+    if (scheduleIndex === -1) return;
+
+    const scheduleToUpdate = schedules[scheduleIndex];
+    const updatedSchedule = { ...scheduleToUpdate, isOn: !scheduleToUpdate.isOn };
+
+    const updatedSchedules = [...schedules];
+    updatedSchedules[scheduleIndex] = updatedSchedule;
     setSchedules(updatedSchedules);
 
+    setIsSaving(true);
     if (user) {
-      const schedulesRef = ref(db, `users/${user.uid}/schedules`);
-      await set(schedulesRef, updatedSchedules);
+      const scheduleRef = ref(db, `users/${user.uid}/schedules/${id}`);
+      try {
+        await update(scheduleRef, { isOn: updatedSchedule.isOn });
+      } catch (error) {
+        console.error("Error updating schedule toggle:", error);
+        Alert.alert("Error", "Failed to update schedule status.");
+        setSchedules(schedules);
+      } finally {
+        setIsSaving(false);
+      }
     }
   };
 
-  // Delete Schedule
   const deleteSchedule = async (id) => {
-    const updatedSchedules = schedules.filter((item) => item.id !== id);
-    setSchedules(updatedSchedules);
+    Alert.alert(
+        "Confirm Delete",
+        "Are you sure you want to delete this schedule?",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+                const updatedSchedules = schedules.filter((item) => item.id !== id);
+                setSchedules(updatedSchedules);
 
-    if (user) {
-      const schedulesRef = ref(db, `users/${user.uid}/schedules`);
-      await set(schedulesRef, updatedSchedules);
+                setIsSaving(true);
+                if (user) {
+                  const scheduleRef = ref(db, `users/${user.uid}/schedules/${id}`);
+                  try {
+                    await remove(scheduleRef);
+                  } catch (error) {
+                    console.error("Error deleting schedule:", error);
+                    Alert.alert("Error", "Failed to delete schedule.");
+                    setSchedules(schedules);
+                  } finally {
+                    setIsSaving(false);
+                  }
+                }
+            },
+          },
+        ]
+      );
+
+  };
+
+  const handleFeedNow = async () => {
+    const feedAmount = parseInt(manualWeight);
+    if (isNaN(feedAmount) || feedAmount <= 0) {
+      Alert.alert("Invalid Amount", "Please enter a valid positive feeding weight (g).");
+      return;
+    }
+
+    if (!user) {
+      Alert.alert("Error", "User not logged in.");
+      return;
+    }
+
+    setIsFeeding(true);
+    const commandRef = ref(db, `users/${user.uid}/commands/feedNow`);
+
+    try {
+      await set(commandRef, {
+        amount: feedAmount,
+        timestamp: Date.now(),
+      });
+      Alert.alert("Command Sent", `${feedAmount}g feed command sent to the feeder.`);
+    } catch (error) {
+      console.error("Error sending feed command:", error);
+      Alert.alert("Error", "Failed to send feed command. Check connection.");
+    } finally {
+      setIsFeeding(false);
     }
   };
 
-  // Logout
+  const openUpdateModal = () => {
+    setTempPetDetails({
+        name: petName,
+        type: petType,
+        weight: petWeight
+    });
+    setShowSettingsModal(false);
+    setShowUpdatePetModal(true);
+  };
+
+  const handleSaveChanges = async () => {
+    if (!tempPetDetails.name.trim() || !tempPetDetails.type.trim() || !tempPetDetails.weight.trim()) {
+        Alert.alert("Missing Information", "Please fill in all pet details.");
+        return;
+    }
+    const weightValue = parseFloat(tempPetDetails.weight);
+     if (isNaN(weightValue) || weightValue <= 0) {
+        Alert.alert("Invalid Weight", "Please enter a valid positive number for weight (kg).");
+        return;
+    }
+
+
+    if (!user) {
+      Alert.alert("Error", "User not logged in.");
+      return;
+    }
+
+    setIsSaving(true);
+    const userRef = ref(db, `users/${user.uid}`);
+    const updates = {
+      petName: tempPetDetails.name,
+      petType: tempPetDetails.type,
+      petWeight: tempPetDetails.weight,
+    };
+
+    try {
+      await update(userRef, updates);
+
+      setPetName(updates.petName);
+      setPetType(updates.petType);
+      setPetWeight(updates.petWeight);
+      const newRecWeight = calculateRecommendedWeight(updates.petWeight);
+      setRecommendedWeight(newRecWeight);
+      // if (manualWeight === recommendedWeight && newRecWeight !== "N/A") {
+      //    setManualWeight(newRecWeight);
+      // }
+
+      setShowUpdatePetModal(false);
+      Alert.alert("Success", "Pet details updated.");
+    } catch (error) {
+      console.error("Error updating pet details:", error);
+      Alert.alert("Error", "Failed to update pet details. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -149,44 +364,30 @@ export default function PetFeeder() {
     }
   };
 
-  // MODAL FOR UPDATE
-  const openUpdateModal = () => {
-    setSettingsVisible(false);
-    setTempDetails(petDetails);
-    setUpdateModalVisible(true);
-  };
-
-  const savePetDetails = async () => {
-    if (!user) return;
-    const docRef = doc(db, 'users', user.uid);
-    await updateDoc(docRef, { petDetails: tempDetails });
-
-    setPetDetails(tempDetails);
-    setUpdateModalVisible(false);
-  };
-
-  
-
-  // Delete Account
-  const handleDeleteAccount = async () => {
+  const handleDeleteAccount = () => {
     if (!user) return;
 
     Alert.alert(
-      "Confirm Delete",
-      "Are you sure you want to delete your account? This action cannot be undone.",
+      "Confirm Delete Account",
+      "Are you sure? This will permanently delete your account and all associated data. This action cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Delete",
+          text: "Delete Permanently",
           style: "destructive",
           onPress: async () => {
+            setIsSaving(true);
             try {
               const userRef = ref(db, `users/${user.uid}`);
               await remove(userRef);
+
               await deleteUser(user);
+
               Alert.alert("Account Deleted", "Your account has been permanently deleted.");
             } catch (error) {
-              Alert.alert("Error", "Failed to delete account. Please log in again and try.");
+              console.error("Error deleting account:", error);
+              Alert.alert("Error", `Failed to delete account. ${error.message}. You may need to log out and log back in to retry.`);
+              setIsSaving(false);
             }
           },
         },
@@ -194,45 +395,128 @@ export default function PetFeeder() {
     );
   };
 
+
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#A06CD5" />
+        <Text>Loading Pet Feeder...</Text>
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.scrollView} contentContainerStyle={styles.container}>
 
-      <View style={styles.top_layer}>
-      <Text style={styles.title}>PET FEEDER</Text>
-      <View style={styles.settingsIcon}>
-      <TouchableOpacity onPress={() => setShowSettings(true)}>
-          <Icon name="settings-outline" size={30} color="#333" />
-      </TouchableOpacity>
+      {/* Header */}
+      <View style={styles.headerContainer}>
+        <Text style={styles.headerTitle}>PET FEEDER</Text>
+        <TouchableOpacity onPress={() => setShowSettingsModal(true)} style={styles.settingsIcon}>
+            <Icon name="settings-outline" size={28} color="#333" />
+        </TouchableOpacity>
       </View>
+
+      {/* Pet Details Section */}
+      <View style={styles.sectionContainer}>
+         <Text style={styles.sectionTitle}>Pet Details</Text>
+         <Text style={styles.infoText}>Name: {petName}</Text>
+         <Text style={styles.infoText}>Type: {petType}</Text>
+         <Text style={styles.infoText}>Weight: {petWeight} kg</Text>
+      </View>
+
+      {/* Feeder Status Section */}
+       <View style={styles.sectionContainer}>
+         <Text style={styles.sectionTitle}>Feeder Status</Text>
+         <View style={styles.statusRow}>
+            <Text style={styles.infoText}>Status: </Text>
+            <View style={[styles.statusIndicator, { backgroundColor: feederOnline ? '#4CAF50' : '#F44336' }]} />
+            <Text style={[styles.infoText, { marginLeft: 5 }]}>{feederOnline ? 'Online' : 'Offline'}</Text>
+         </View>
+         <Text style={styles.infoText}>Food Level: {foodLevelStatus}</Text>
+         <Text style={styles.infoText}>Last Feed: {lastFeedInfo}</Text>
+         {feederError !== "None" && (
+             <Text style={[styles.infoText, styles.errorText]}>Error: {feederError}</Text>
+         )}
+       </View>
+
+      {/* Feeding Control Section */}
+      <View style={styles.sectionContainer}>
+        <Text style={styles.sectionTitle}>Feeding Control</Text>
+        <View style={styles.feedingRow}>
+            <Text style={styles.infoText}>Recommended: {recommendedWeight}g / meal</Text>
+            <TouchableOpacity style={styles.guideButton} onPress={() => setShowFeedingGuideModal(true)}>
+                <Text style={styles.guideButtonText}>Guide</Text>
+            </TouchableOpacity>
+        </View>
+
+        <TextInput
+          style={styles.input}
+          placeholder={`Enter feeding weight (g) e.g. ${recommendedWeight !== 'N/A' ? recommendedWeight : '100'}`}
+          placeholderTextColor="#888"
+          keyboardType="numeric"
+          value={manualWeight}
+          onChangeText={setManualWeight}
+        />
+
+        {/* Feed Now Button */}
+        <TouchableOpacity
+            style={[styles.actionButton, styles.feedNowButton, isFeeding && styles.buttonDisabled]}
+            onPress={handleFeedNow}
+            disabled={isFeeding || !feederOnline}
+        >
+            {isFeeding ? (
+                <ActivityIndicator size="small" color="#fff" />
+            ) : (
+                <Text style={styles.buttonText}>Feed Now ({manualWeight || 'N/A'}g)</Text>
+            )}
+        </TouchableOpacity>
       </View>
 
 
-      <Text style={styles.info}>Pet Name: {petName}</Text>
-      <Text style={styles.info}>Pet Type: {petType}</Text>
-      <Text style={styles.info}>Pet Weight: {petWeight} kg</Text>
+      {/* Schedule Section */}
+      <View style={styles.sectionContainer}>
+        <Text style={styles.sectionTitle}>Feeding Schedule</Text>
+        <TouchableOpacity style={[styles.actionButton, styles.addTimeButton]} onPress={handleAddFeedingTime}>
+          <Text style={styles.buttonText}>Add Schedule Time</Text>
+        </TouchableOpacity>
 
-      <TouchableOpacity style={styles.recommendButton} onPress={() => setShowModal(true)}>
-        <Text style={styles.buttonText}>Recommended</Text>
-      </TouchableOpacity>
+        {/* Loading indicator for saves */}
+        {isSaving && <ActivityIndicator size="small" color="#A06CD5" style={{ marginVertical: 5 }}/>}
 
-      <Text style={styles.info}>Recommended Portion: {recommendedWeight}g per meal</Text>
+        {schedules.length === 0 && !isLoading ? (
+             <Text style={styles.noSchedulesText}>No schedules added yet.</Text>
+        ) : (
+            <FlatList
+                data={schedules.sort((a, b) => a.time.localeCompare(b.time))}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                <View style={styles.scheduleItem}>
+                    <View style={styles.scheduleInfo}>
+                        <Text style={styles.scheduleTime}>{item.time}</Text>
+                        <Text style={styles.scheduleWeight}>{item.weight}g</Text>
+                    </View>
+                    <View style={styles.scheduleControls}>
+                        <Switch
+                            trackColor={{ false: "#ccc", true: "#B185DB" }}
+                            thumbColor={item.isOn ? "#A06CD5" : "#f4f3f4"}
+                            ios_backgroundColor="#3e3e3e"
+                            onValueChange={() => toggleSchedule(item.id)}
+                            value={item.isOn}
+                        />
+                        <TouchableOpacity onPress={() => deleteSchedule(item.id)} style={styles.deleteButton}>
+                            <Icon name="trash-outline" size={22} color="#dc3545" />
+                        </TouchableOpacity>
+                    </View>
+                </View>
+                )}
+                scrollEnabled={false}
+            />
+        )}
+      </View>
 
-      <TextInput
-        style={styles.input}
-        placeholder="Enter feeding weight (g)"
-        keyboardType="numeric"
-        value={manualWeight}
-        onChangeText={setManualWeight}
-      />
-
-<TouchableOpacity style={styles.timeButton} onPress={handleAddFeedingTime}>
-  <Text style={styles.buttonText}>Select Feeding Time</Text>
-</TouchableOpacity>
-
-{showPicker && (
-  <Modal transparent={true} animationType="fade" visible={showPicker}>
-    <View style={styles.modalContainer}>
-      <View style={styles.modalContent}>
+      {/* DateTime Picker Modal */}
+      {showPicker && (
         <DateTimePicker
           value={selectedTime}
           mode="time"
@@ -240,41 +524,24 @@ export default function PetFeeder() {
           display="spinner"
           onChange={onTimeSelected}
         />
-      </View>
-    </View>
-  </Modal>
-)}
+      )}
 
-      <FlatList
-        data={schedules}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View style={styles.scheduleItem}>
-            <Text>
-              {item.time} - {item.weight}g
-            </Text>
-            <Switch value={item.isOn} onValueChange={() => toggleSchedule(item.id)} />
-            <TouchableOpacity onPress={() => deleteSchedule(item.id)}>
-              <Text style={styles.deleteText}>Delete</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      />
 
-      {/* Modal for Feeding Guide */}
-      <Modal visible={showModal} transparent={true} animationType="slide">
-        <View style={styles.modalContainer}>
+      {/* Feeding Guide Modal */}
+      <Modal visible={showFeedingGuideModal} transparent={true} animationType="fade" onRequestClose={() => setShowFeedingGuideModal(false)}>
+        <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.title}>Feeding Guide</Text>
-            <Text>- Below 5kg: 50g per meal</Text>
-            <Text>- 5-10kg: 120g per meal</Text>
-            <Text>- 10-20kg: 200g per meal</Text>
-            <Text>- 20-30kg: 300g per meal</Text>
-            <Text>- 30-40kg: 400g per meal</Text>
-            <Text>- 40kg+: 500g per meal</Text>
+            <Text style={styles.modalTitle}>Feeding Guide (Example)</Text>
+            <Text style={styles.modalText}>- Below 5kg: ~50g per meal</Text>
+            <Text style={styles.modalText}>- 5-10kg: ~120g per meal</Text>
+            <Text style={styles.modalText}>- 10-20kg: ~200g per meal</Text>
+            <Text style={styles.modalText}>- 20-30kg: ~300g per meal</Text>
+            <Text style={styles.modalText}>- 30-40kg: ~400g per meal</Text>
+            <Text style={styles.modalText}>- 40kg+: ~500g per meal</Text>
+            <Text style={styles.modalNote}>Note: These are general guidelines. Consult your vet for specific recommendations.</Text>
             <TouchableOpacity
-              style={styles.closeButton}
-              onPress={() => setShowModal(false)}
+              style={[styles.modalButton, styles.closeButton]}
+              onPress={() => setShowFeedingGuideModal(false)}
             >
               <Text style={styles.buttonText}>Close</Text>
             </TouchableOpacity>
@@ -282,24 +549,24 @@ export default function PetFeeder() {
         </View>
       </Modal>
 
-      {/* Modal for Settings */}
-      <Modal visible={showSettings} transparent={true} animationType="fade">
-        <View style={styles.modalContainer}>
+      {/* Settings Modal */}
+      <Modal visible={showSettingsModal} transparent={true} animationType="fade" onRequestClose={() => setShowSettingsModal(false)}>
+        <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.title}>Settings</Text>
-
-{/*             <TouchableOpacity style={styles.settingsButton} onPress={openUpdateModal}>
-              <Text style={styles.settingsText}>Update</Text>
-            </TouchableOpacity> */}
-            <TouchableOpacity style={styles.settingsButton} onPress={handleLogout}>
-              <Text style={styles.settingsText}>Logout</Text>
+            <Text style={styles.modalTitle}>Settings</Text>
+            <TouchableOpacity style={styles.modalButton} onPress={openUpdateModal}>
+              <Text style={styles.modalButtonText}>Update Pet Details</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.settingsButton} onPress={handleDeleteAccount}>
-              <Text style={styles.settingsText}>Delete Account</Text>
+            <TouchableOpacity style={styles.modalButton} onPress={handleLogout}>
+              <Text style={styles.modalButtonText}>Logout</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={[styles.modalButton, styles.deleteAccountButton]} onPress={handleDeleteAccount}>
+              <Text style={styles.modalButtonText}>Delete Account</Text>
+            </TouchableOpacity>
+             {isSaving && <ActivityIndicator size="small" color="#A06CD5" style={{ marginTop: 10 }}/>}
             <TouchableOpacity
-              style={styles.closeButton}
-              onPress={() => setShowSettings(false)}
+              style={[styles.modalButton, styles.closeButton]}
+              onPress={() => setShowSettingsModal(false)}
             >
               <Text style={styles.buttonText}>Close</Text>
             </TouchableOpacity>
@@ -307,146 +574,287 @@ export default function PetFeeder() {
         </View>
       </Modal>
 
-{/*       <Modal visible={updateModalVisible} transparent animationType="slide">
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Update Pet Details</Text>
+       {/* Update Pet Details Modal */}
+       <Modal visible={showUpdatePetModal} transparent={true} animationType="fade" onRequestClose={() => setShowUpdatePetModal(false)}>
+         <View style={styles.modalOverlay}>
+           <View style={styles.modalContent}>
+             <Text style={styles.modalTitle}>Update Pet Details</Text>
+             <TextInput
+                style={styles.modalInput}
+                placeholder="Pet Name"
+                value={tempPetDetails.name}
+                onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, name: text })}
+            />
+             <TextInput
+                style={styles.modalInput}
+                placeholder="Pet Type (e.g., Dog, Cat)"
+                value={tempPetDetails.type}
+                onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, type: text })}
+             />
+            <TextInput
+                style={styles.modalInput}
+                placeholder="Pet Weight (kg)"
+                keyboardType="numeric"
+                value={tempPetDetails.weight}
+                onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, weight: text })}
+             />
 
-            <TextInput style={styles.input} placeholder="Pet Name" value={petName} onChange={(text) => setTempDetails({ ...TempDetails, name: text})}/>
-            <TextInput style={styles.input} placeholder="Pet Type" value={petType} onChange={(text) => setTempDetails({ ...TempDetails, type: text})}/>
-            <TextInput style={styles.input} placeholder="Pet Weight (g)" value={petWeight} onChange={(text) => setTempDetails({ ...TempDetails, weight: text})}/>
+             <TouchableOpacity
+                style={[styles.modalButton, styles.saveButton, isSaving && styles.buttonDisabled]}
+                onPress={handleSaveChanges}
+                disabled={isSaving}
+              >
+                {isSaving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.buttonText}>Save Changes</Text>}
+             </TouchableOpacity>
+             <TouchableOpacity
+                style={[styles.modalButton, styles.closeButton]}
+                onPress={() => setShowUpdatePetModal(false)}
+                disabled={isSaving}
+              >
+               <Text style={styles.buttonText}>Cancel</Text>
+             </TouchableOpacity>
+           </View>
+         </View>
+       </Modal>
 
-            <TouchableOpacity onPress={savePetDetails} style={styles.saveButton}>
-              <Text style={styles.saveText}>Save Changes</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={() => setUpdateModalVisible(false)} style={styles.closeButton}>
-              <Text style={styles.closeText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal> */}
-    </View>
+    </ScrollView>
   );
 }
 
-// Styles
 const styles = StyleSheet.create({
-  container: {
+  scrollView: {
     flex: 1,
-    padding: 20,
     backgroundColor: "#f8f9fa",
+  },
+  container: {
+    paddingBottom: 40,
     alignItems: "center",
-  },
-  title: {
-    fontSize: 20,
-    fontFamily: "Nunito",
-    fontWeight: "bold",
-    marginBottom: 10,
-    top: 20,
-  },
-  info: {
-    fontSize: 18,
-    marginBottom: 5,
-    top: 30,
-  },
-  recommendButton: {
-    padding: 10,
-    backgroundColor: "#A06CD5",
-    borderRadius: 5,
-    marginTop: 10,
-    top: 25,
-  },
-  input: {
-    width: "80%",
-    padding: 10,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 5,
-    backgroundColor: "#DEC9E9",
-    marginBottom: 10,
-    textAlign: "center",
-    top: 30,
-  },
-  timeButton: {
-    padding: 15,
-    backgroundColor: "#A06CD5",
-    borderRadius: 10,
-    width: 200,
-    alignItems: "center",
-    marginBottom: 10,
-    top: 40, //time
-  },
-
-  scheduleItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#DAC3E8",
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 10,
-    top: 55,
-  },
-  deleteText: {
-    color: "red",
-    fontWeight: "bold",
-  },
-
-  // TOP LAYER
-
-  top_layer: {
-    flexDirection: "row",
-    position: "relative",
-    width: "100%",
     paddingHorizontal: 15,
-    alignItems: "center"
   },
-
-  settingsIcon: {
-    position: "absolute",
-    right: 2,
-    top: "50%",
-  },
-
-  modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 10 },
-
-
-  modalContainer: {
+  loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "#f8f9fa",
   },
-  modalContent: {
-    width: 300,
-    padding: 20,
-    backgroundColor: "#fff",
+  headerContainer: {
+    width: '100%',
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 20,
+    marginTop: 30,
+    position: 'relative',
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#333",
+    fontFamily: "Nunito",
+  },
+  settingsIcon: {
+    position: "absolute",
+    right: 15,
+    top: '50%',
+    transform: [{ translateY: -14 }]
+  },
+  sectionContainer: {
+    width: '100%',
+    backgroundColor: '#fff',
     borderRadius: 10,
-    alignItems: "center",
+    padding: 15,
+    marginBottom: 15,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
   },
-  
-  closeButton: {
-    padding: 10,
-    marginTop: 15,
-    backgroundColor: "#dc3545",
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#555',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    paddingBottom: 5,
+  },
+  infoText: {
+    fontSize: 16,
+    marginBottom: 5,
+    color: "#444",
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  statusIndicator: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginLeft: 8,
+  },
+  errorText: {
+    color: '#dc3545',
+    fontWeight: 'bold',
+  },
+  feedingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  guideButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: '#e0e0e0',
     borderRadius: 5,
+  },
+  guideButtonText: {
+    fontSize: 14,
+    color: '#555',
+    fontWeight: 'bold',
+  },
+  input: {
+    width: "100%",
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    marginBottom: 12,
+    fontSize: 16,
+  },
+  actionButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
     alignItems: "center",
-    width: 100,
+    marginBottom: 10,
+    width: '100%',
+  },
+  feedNowButton: {
+     backgroundColor: "#28a745",
+  },
+  addTimeButton: {
+      backgroundColor: "#A06CD5",
   },
   buttonText: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "bold",
   },
-  settingsButton: {
-    padding: 10,
-    backgroundColor: "#f0f0f0",
-    borderRadius: 5,
-    marginTop: 10,
+  buttonDisabled: {
+    backgroundColor: "#ccc",
   },
-  settingsText: {
-    color: "#333",
-    fontSize: 16,
+  scheduleItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#f0e8f6",
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+    width: '100%',
   },
+   scheduleInfo: {
+     flex: 1,
+     marginRight: 10,
+   },
+   scheduleTime: {
+     fontSize: 16,
+     fontWeight: 'bold',
+     color: '#333',
+   },
+   scheduleWeight: {
+     fontSize: 14,
+     color: '#555',
+   },
+   scheduleControls: {
+     flexDirection: 'row',
+     alignItems: 'center',
+   },
+   deleteButton: {
+     marginLeft: 15,
+     padding: 5,
+   },
+   noSchedulesText: {
+       textAlign: 'center',
+       color: '#888',
+       marginTop: 15,
+       fontSize: 15,
+   },
+
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.6)",
+  },
+  modalContent: {
+    width: "90%",
+    maxWidth: 350,
+    padding: 20,
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 15,
+    color: '#333',
+    textAlign: 'center',
+  },
+   modalText: {
+     fontSize: 15,
+     marginBottom: 5,
+     color: '#444',
+     textAlign: 'left',
+     width: '100%',
+   },
+   modalNote: {
+     fontSize: 13,
+     color: '#777',
+     marginTop: 10,
+     fontStyle: 'italic',
+     textAlign: 'center',
+   },
+   modalButton: {
+       width: '100%',
+       paddingVertical: 12,
+       borderRadius: 8,
+       alignItems: 'center',
+       marginTop: 10,
+       backgroundColor: '#f0f0f0',
+   },
+   modalButtonText: {
+       color: '#333',
+       fontSize: 16,
+       fontWeight: 'bold',
+   },
+   deleteAccountButton: {
+      backgroundColor: '#dc3545',
+   },
+   saveButton: {
+       backgroundColor: '#007bff',
+   },
+   closeButton: {
+     backgroundColor: "#6c757d",
+   },
+   modalInput: {
+     width: '100%',
+     padding: 10,
+     borderWidth: 1,
+     borderColor: '#ccc',
+     borderRadius: 5,
+     marginBottom: 10,
+     fontSize: 16,
+   },
 });
