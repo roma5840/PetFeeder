@@ -11,6 +11,9 @@
 
 // v1.1:
 // fixed error handling (cleanup function)
+
+// v1.2:
+// updated pet details (from text type to selectable between dog and cat)
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
@@ -706,12 +709,36 @@ const handleDeleteAccount = () => {
                 value={tempPetDetails.name}
                 onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, name: text })}
             />
-             <TextInput
-                style={styles.modalInput}
-                placeholder="Pet Type (e.g., Dog, Cat)"
-                value={tempPetDetails.type}
-                onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, type: text })}
-             />
+            <Text style={styles.modalLabel}>Pet Type:</Text>
+            <View style={styles.petTypeSelectionContainer}>
+                <TouchableOpacity
+                    style={[
+                        styles.petTypeButton,
+                        tempPetDetails.type === 'Dog' && styles.petTypeButtonSelected
+                    ]}
+                    onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Dog' })}
+                    disabled={isSaving}
+                >
+                    <Text style={[
+                        styles.petTypeButtonText,
+                        tempPetDetails.type === 'Dog' && styles.petTypeButtonTextSelected
+                    ]}>Dog</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={[
+                        styles.petTypeButton,
+                        tempPetDetails.type === 'Cat' && styles.petTypeButtonSelected
+                    ]}
+                    onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Cat' })}
+                    disabled={isSaving}
+                >
+                     <Text style={[
+                        styles.petTypeButtonText,
+                        tempPetDetails.type === 'Cat' && styles.petTypeButtonTextSelected
+                    ]}>Cat</Text>
+                </TouchableOpacity>
+            </View>
             <TextInput
                 style={styles.modalInput}
                 placeholder="Pet Weight (kg)"
@@ -978,4 +1005,39 @@ const styles = StyleSheet.create({
      marginBottom: 10,
      fontSize: 16,
    },
+   modalLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#555',
+    marginBottom: 5,
+    alignSelf: 'flex-start',
+    marginLeft: '5%',
+  },
+  petTypeSelectionContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '90%',
+    marginBottom: 15,
+  },
+  petTypeButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 25,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#A06CD5',
+    backgroundColor: '#f8f9fa',
+  },
+  petTypeButtonSelected: {
+    backgroundColor: '#B185DB',
+    borderColor: '#A06CD5',
+  },
+  petTypeButtonText: {
+    fontSize: 16,
+    color: '#A06CD5',
+    fontWeight: 'bold',
+  },
+  petTypeButtonTextSelected: {
+    color: '#fff',
+  },
+
 });
