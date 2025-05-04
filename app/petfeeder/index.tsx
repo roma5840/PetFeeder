@@ -1,5 +1,7 @@
-// UPDATED PETFEEDER UI (current v: v1.0)
+// UPDATED PETFEEDER UI (current v: v1.1)
 // Changes made by me (Ryan):
+
+// v1:
 // 1. UI UPDATES
 // 2. Feeder Status 
 // 3. Feed Now button
@@ -7,10 +9,9 @@
 // 5. Added more error handling
 // NEXT STEPS: ESP32 code needs to use the Firebase library to listen to users/{uid}/commands/feedNow
 
-// IGNORE (harmless error):
-// Error listening to schedules
-// Error listening to feeder status
-import React, { useState, useEffect, useCallback } from "react";
+// v1.1:
+// fixed error handling (cleanup function)
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -62,6 +63,9 @@ export default function PetFeeder() {
   const [foodLevelStatus, setFoodLevelStatus] = useState("Unknown");
   const [feederError, setFeederError] = useState("None");
 
+  const statusListenerUnsubscribe = useRef(null);
+  const schedulesListenerUnsubscribe = useRef(null);
+
   const auth = getAuth();
   const db = getDatabase();
   const user = auth.currentUser;
@@ -80,86 +84,129 @@ export default function PetFeeder() {
 
   useEffect(() => {
     if (!user) {
-      setIsLoading(false);
-      return;
+        console.log("useEffect: No user found, skipping listener attachment.");
+        setIsLoading(false);
+         if (statusListenerUnsubscribe.current) {
+            statusListenerUnsubscribe.current();
+            statusListenerUnsubscribe.current = null;
+        }
+         if (schedulesListenerUnsubscribe.current) {
+            schedulesListenerUnsubscribe.current();
+            schedulesListenerUnsubscribe.current = null;
+        }
+        return;
     }
 
+    console.log(`useEffect: Setting up for user ${user.uid}`);
     setIsLoading(true);
-    const userRef = ref(db, `users/${user.uid}`);
+    let initialDataFetched = false;
+    let listenersAttached = false;
+
+    const userBaseRef = ref(db, `users/${user.uid}`);
     const statusRef = ref(db, `users/${user.uid}/feederStatus`);
     const schedulesRef = ref(db, `users/${user.uid}/schedules`);
 
-    let statusListener;
-    let schedulesListener;
+    get(userBaseRef).then((snapshot) => {
+        if (snapshot.exists()) {
+            const data = snapshot.val();
+            setPetName(data.petName || "Unknown");
+            setPetType(data.petType || "Unknown");
+            setPetWeight(data.petWeight || "");
 
-    get(userRef).then((snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        setPetName(data.petName || "Unknown");
-        setPetType(data.petType || "Unknown");
-        setPetWeight(data.petWeight || "");
-
-        if (data.petWeight) {
-          const recWeight = calculateRecommendedWeight(data.petWeight);
-          setRecommendedWeight(recWeight);
-          if (!manualWeight) setManualWeight(recWeight !== "N/A" ? recWeight : "100");
+            const recWeight = calculateRecommendedWeight(data.petWeight || "");
+            setRecommendedWeight(recWeight);
+            if (!manualWeight) {
+                setManualWeight(recWeight !== "N/A" ? recWeight : "100");
+            }
         } else {
+            setPetName("N/A");
+            setPetType("N/A");
+            setPetWeight("");
             setRecommendedWeight("N/A");
-            if (!manualWeight) setManualWeight("100");
+             if (!manualWeight) setManualWeight("100");
         }
-      }
-
-       if (!manualWeight) {
-        const recWeight = calculateRecommendedWeight(petWeight);
-        setManualWeight(recWeight !== "N/A" ? recWeight : "100");
-      }
+         initialDataFetched = true;
+         if (listenersAttached) setIsLoading(false);
     }).catch(error => {
-      console.error("Error fetching initial pet data:", error);
-      // Alert.alert("Error", "Could not fetch pet details.");
-    }).finally(() => {
-       // a
-    });
-
-    statusListener = onValue(statusRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const statusData = snapshot.val();
-        setFeederOnline(statusData.isOnline || false);
-        setFoodLevelStatus(statusData.foodLevel || "Unknown");
-        setFeederError(statusData.error || "None");
-        if (statusData.lastFeedTimestamp) {
-          const date = new Date(statusData.lastFeedTimestamp);
-          const amount = statusData.lastFeedAmount || 'N/A';
-          setLastFeedInfo(`${date.toLocaleTimeString()} (${amount}g)`);
-        } else {
-          setLastFeedInfo("N/A");
-        }
-      } else {
-        setFeederOnline(false);
-        setFoodLevelStatus("Unknown");
-        setFeederError("None");
-        setLastFeedInfo("N/A");
-      }
-    }, (error) => {
-        console.error("Error listening to feeder status:", error);
-    });
-
-    schedulesListener = onValue(schedulesRef, (snapshot) => {
-        const schedulesData = snapshot.val();
-        setSchedules(schedulesData ? Object.values(schedulesData) : []);
+        console.error("useEffect: Error fetching initial pet data:", error);
+        Alert.alert("Error", "Could not fetch pet details.");
         setIsLoading(false);
+    });
+
+    console.log(`useEffect: Attaching listeners for UID: ${user.uid}`);
+
+    statusListenerUnsubscribe.current = onValue(statusRef, (snapshot) => {
+        console.log("useEffect: Feeder status data received.");
+        if (snapshot.exists()) {
+            const statusData = snapshot.val();
+            setFeederOnline(statusData.isOnline || false);
+            setFoodLevelStatus(statusData.foodLevel || "Unknown");
+            setFeederError(statusData.error || "None");
+            if (statusData.lastFeedTimestamp) {
+                const date = new Date(statusData.lastFeedTimestamp);
+                const amount = statusData.lastFeedAmount || 'N/A';
+                setLastFeedInfo(`${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${amount}g)`);
+            } else {
+                setLastFeedInfo("N/A");
+            }
+        } else {
+            setFeederOnline(false);
+            setFoodLevelStatus("Unknown");
+            setFeederError("None");
+            setLastFeedInfo("N/A");
+        }
+        listenersAttached = true;
+        if(initialDataFetched) setIsLoading(false);
     }, (error) => {
-        console.error("Error listening to schedules:", error);
-        // Alert.alert("Error", "Could not load schedules in real-time.");
+        console.error("useEffect: Error listening to feeder status:", error);
+        if (error.code !== 'PERMISSION_DENIED') {
+            Alert.alert("Error", "Could not load feeder status.");
+        }
+        setIsLoading(false);
+    });
+
+    schedulesListenerUnsubscribe.current = onValue(schedulesRef, (snapshot) => {
+        console.log("useEffect: Schedules data received.");
+        const schedulesData = snapshot.val();
+        let schedulesArray = [];
+        if (typeof schedulesData === 'object' && schedulesData !== null) {
+            schedulesArray = Object.values(schedulesData);
+        } else if (Array.isArray(schedulesData)) {
+            schedulesArray = schedulesData;
+        }
+        setSchedules(schedulesArray);
+        listenersAttached = true;
+        if(initialDataFetched) setIsLoading(false);
+    }, (error) => {
+        console.error("useEffect: Error listening to schedules:", error);
+        if (error.code !== 'PERMISSION_DENIED') {
+            Alert.alert("Error", "Could not load schedules.");
+        }
         setIsLoading(false);
     });
 
 
     return () => {
-      if (statusListener) off(statusRef, 'value', statusListener);
-      if (schedulesListener) off(schedulesRef, 'value', schedulesListener);
+        console.log(`useEffect: Running cleanup for PetFeeder (User: ${user?.uid})`);
+        if (statusListenerUnsubscribe.current) {
+            console.log("useEffect cleanup: Detaching status listener.");
+            statusListenerUnsubscribe.current();
+            statusListenerUnsubscribe.current = null;
+        } else {
+             console.log("useEffect cleanup: Status listener already detached or never attached.");
+        }
+        if (schedulesListenerUnsubscribe.current) {
+            console.log("useEffect cleanup: Detaching schedules listener.");
+            schedulesListenerUnsubscribe.current();
+            schedulesListenerUnsubscribe.current = null;
+        } else {
+             console.log("useEffect cleanup: Schedules listener already detached or never attached.");
+        }
     };
 
   }, [user, db, calculateRecommendedWeight]);
+
+
 
 
   const handleAddFeedingTime = () => {
@@ -356,44 +403,118 @@ export default function PetFeeder() {
 
 
   const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      Alert.alert("Success", "You have been logged out.");
-    } catch (error) {
-      Alert.alert("Error", "Failed to log out. Please try again.");
+    console.log("handleLogout: Initiated.");
+
+    console.log("handleLogout: Attempting to detach listeners...");
+    if (statusListenerUnsubscribe.current) {
+        console.log("handleLogout: Detaching status listener.");
+        try {
+            statusListenerUnsubscribe.current();
+            statusListenerUnsubscribe.current = null;
+            console.log("handleLogout: Status listener detached successfully.");
+        } catch (e) {
+             console.error("handleLogout: Error detaching status listener:", e);
+        }
+    } else {
+        console.log("handleLogout: Status listener ref is null (already detached or never attached).");
     }
-  };
 
-  const handleDeleteAccount = () => {
-    if (!user) return;
+    if (schedulesListenerUnsubscribe.current) {
+        console.log("handleLogout: Detaching schedules listener.");
+         try {
+            schedulesListenerUnsubscribe.current();
+            schedulesListenerUnsubscribe.current = null;
+            console.log("handleLogout: Schedules listener detached successfully.");
+        } catch (e) {
+             console.error("handleLogout: Error detaching schedules listener:", e);
+        }
+    } else {
+        console.log("handleLogout: Schedules listener ref is null (already detached or never attached).");
+    }
 
-    Alert.alert(
+    try {
+        console.log("handleLogout: Calling signOut...");
+        await signOut(auth);
+        console.log("handleLogout: SignOut successful.");
+    } catch (error) {
+        Alert.alert("Error", "Failed to log out. Please try again.");
+        console.error("handleLogout: SignOut error:", error);
+    }
+};
+
+
+
+const handleDeleteAccount = () => {
+  const userToDelete = auth.currentUser;
+  if (!userToDelete) {
+      Alert.alert("Error", "User not found. Cannot delete account.");
+      return;
+  }
+
+  Alert.alert(
       "Confirm Delete Account",
       "Are you sure? This will permanently delete your account and all associated data. This action cannot be undone.",
       [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete Permanently",
-          style: "destructive",
-          onPress: async () => {
-            setIsSaving(true);
-            try {
-              const userRef = ref(db, `users/${user.uid}`);
-              await remove(userRef);
+          { text: "Cancel", style: "cancel" },
+          {
+              text: "Delete Permanently",
+              style: "destructive",
+              onPress: async () => {
+                  console.log(`handleDeleteAccount: Initiated for user ${userToDelete.uid}.`);
+                  setIsSaving(true);
 
-              await deleteUser(user);
+                  console.log("handleDeleteAccount: Attempting to detach listeners...");
+                   if (statusListenerUnsubscribe.current) {
+                      console.log("handleDeleteAccount: Detaching status listener.");
+                      try {
+                          statusListenerUnsubscribe.current();
+                          statusListenerUnsubscribe.current = null;
+                          console.log("handleDeleteAccount: Status listener detached.");
+                      } catch(e) { console.error("handleDeleteAccount: Error detaching status listener:", e); }
+                  } else {
+                      console.log("handleDeleteAccount: Status listener ref is null.");
+                  }
+                   if (schedulesListenerUnsubscribe.current) {
+                      console.log("handleDeleteAccount: Detaching schedules listener.");
+                      try {
+                          schedulesListenerUnsubscribe.current();
+                          schedulesListenerUnsubscribe.current = null;
+                          console.log("handleDeleteAccount: Schedules listener detached.");
+                      } catch (e) { console.error("handleDeleteAccount: Error detaching schedules listener:", e); }
+                  } else {
+                      console.log("handleDeleteAccount: Schedules listener ref is null.");
+                  }
 
-              Alert.alert("Account Deleted", "Your account has been permanently deleted.");
-            } catch (error) {
-              console.error("Error deleting account:", error);
-              Alert.alert("Error", `Failed to delete account. ${error.message}. You may need to log out and log back in to retry.`);
-              setIsSaving(false);
-            }
+                  try {
+                      // Delete Realtime Database data
+                      console.log("handleDeleteAccount: Deleting database data...");
+                      const userRef = ref(db, `users/${userToDelete.uid}`);
+                      await remove(userRef);
+                      console.log("handleDeleteAccount: Database data deleted successfully.");
+
+                      // Delete Firebase Auth user
+                      console.log("handleDeleteAccount: Deleting auth user...");
+                      await deleteUser(userToDelete);
+                      console.log("handleDeleteAccount: Auth user deleted successfully.");
+
+                  } catch (error) {
+                      console.error("handleDeleteAccount: Error during deletion process:", error);
+                      let errorMessage = `Failed to delete account. Please try again.`;
+                       if (error.code === 'auth/requires-recent-login') {
+                          errorMessage = 'This operation requires a recent login. Please log out and log back in to delete your account.';
+                      } else if (error.message) {
+                          errorMessage = `Failed to delete account: ${error.message}`;
+                      }
+                      Alert.alert("Deletion Error", errorMessage);
+                      setIsSaving(false); 
+                  }
+              },
           },
-        },
       ]
     );
   };
+
+
 
 
 
