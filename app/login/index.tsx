@@ -1,4 +1,4 @@
-// UPDATED PETFEEDER UI
+// UPDATED LOGIN UI
 // Changes made by me (Ryan):
 
 // v2:
