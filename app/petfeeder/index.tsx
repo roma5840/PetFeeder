@@ -636,7 +636,7 @@ const handleDeleteAccount = () => {
             style={[
               styles.actionButton,
               styles.feedNowButton,
-              (isFeeding || !feederOnline) && styles.disabledButton
+              (isFeeding || !feederOnline) && styles.buttonDisabled
             ]}
             onPress={handleFeedNow}
             disabled={isFeeding || !feederOnline}
@@ -1005,9 +1005,6 @@ const styles = StyleSheet.create({
   },
   feedNowButton: {
      backgroundColor: "#28a745",
-  },
-  disabledButton: {
-    backgroundColor: "#cccccc",
   },
   addTimeButton: {
       backgroundColor: "#A06CD5",
