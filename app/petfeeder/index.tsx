@@ -633,7 +633,11 @@ const handleDeleteAccount = () => {
 
         {/* Feed Now Button */}
         <TouchableOpacity
-            style={[styles.actionButton, styles.feedNowButton, isFeeding && styles.buttonDisabled]}
+            style={[
+              styles.actionButton,
+              styles.feedNowButton,
+              (isFeeding || !feederOnline) && styles.disabledButton
+            ]}
             onPress={handleFeedNow}
             disabled={isFeeding || !feederOnline}
         >
@@ -1001,6 +1005,9 @@ const styles = StyleSheet.create({
   },
   feedNowButton: {
      backgroundColor: "#28a745",
+  },
+  disabledButton: {
+    backgroundColor: "#cccccc",
   },
   addTimeButton: {
       backgroundColor: "#A06CD5",
