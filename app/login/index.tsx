@@ -3,6 +3,9 @@
 
 // v2:
 // fixed ui
+
+// v2.1:
+// adjusted login captcha box and ui padding
 import { useState, useEffect } from "react";
 import {
   View,
@@ -209,6 +212,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 20,
     backgroundColor: "#f8f9fa",
+    paddingBottom: 120,
   },
   logo: {
     width: 250,
@@ -253,13 +257,16 @@ const styles = StyleSheet.create({
   },
   captchaContainer: {
     marginBottom: 15,
-    // alignItems: 'center',
+
+    // added for v2.1
+    width: '100%',
+    alignItems: 'center',
   },
   captchaQuestion: {
     fontSize: 16,
     marginBottom: 8,
     color: '#555',
-    textAlign: 'left',
+    // textAlign: 'left', //removed for v2.1
   },
   captchaInput: {
     height: 50,
@@ -270,6 +277,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     fontSize: 16,
     color: '#333',
+
+    // added for v2.1
+    width: '40%',
+    textAlign: 'center',
   },
   button: {
     backgroundColor: "#A06CD5",
