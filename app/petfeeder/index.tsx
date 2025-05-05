@@ -23,6 +23,9 @@
 
 // v2.1.1:
 // bug fix (feeding control keeps refreshing)
+
+// v3:
+// edit feeding weight
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
@@ -368,6 +371,31 @@ export default function PetFeeder() {
 
   };
 
+  // for manual weight change
+  // remove if you want to exceed 500g (no limits on feeding grams - software risk (possible continuous serving of food))
+  const handleManualWeightChange = (text) => {
+    if (text === '') {
+      setManualWeight('');
+      return;
+    }
+
+    const digitsOnly = text.replace(/[^0-9]/g, '');
+
+    if (digitsOnly === '') {
+        return;
+    }
+
+    const numericValue = parseInt(digitsOnly, 10);
+
+    if (numericValue > 500) {
+      Alert.alert("Limit Exceeded", "Maximum feeding weight is 500g.");
+      setManualWeight("500");
+    } else {
+      setManualWeight(digitsOnly);
+    }
+  };
+
+
   const handleFeedNow = async () => {
     const feedAmount = parseInt(manualWeight);
     if (isNaN(feedAmount) || feedAmount <= 0) {
@@ -632,9 +660,16 @@ const handleDeleteAccount = () => {
           style={styles.input}
           placeholder={`Enter feeding weight (g) e.g. ${recommendedWeight !== 'N/A' ? recommendedWeight : '100'}`}
           placeholderTextColor="#888"
-          keyboardType="numeric"
+
+          // keyboardType="numeric"
+          // value={manualWeight}
+          // onChangeText={setManualWeight}
+
+          // remove if want to exceed 500g and apply the commented-out code above
+          keyboardType="number-pad"
           value={manualWeight}
-          onChangeText={setManualWeight}
+          onChangeText={handleManualWeightChange}
+          maxLength={3}
         />
 
         {/* Feed Now Button */}
