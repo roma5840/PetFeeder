@@ -284,7 +284,7 @@ const styles = StyleSheet.create({
     marginVertical: 5, 
   },
   disabledButton: {
-    backgroundColor: "#E0E0E0",
+    backgroundColor: "#DAC3E8",
   },
   buttonText: {
     color: "#fff",
