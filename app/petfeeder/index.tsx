@@ -799,21 +799,47 @@ const handleDeleteAccount = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Settings</Text>
-            <TouchableOpacity style={styles.modalButton} onPress={openUpdateModal}>
-              <Text style={styles.modalButtonText}>Update Pet Details</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.modalButton} onPress={handleLogout}>
-              <Text style={styles.modalButtonText}>Logout</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.modalButton, styles.deleteAccountButton]} onPress={handleDeleteAccount}>
-              <Text style={styles.modalButtonText}>Delete Account</Text>
-            </TouchableOpacity>
-             {isSaving && <ActivityIndicator size="small" color="#A06CD5" style={{ marginTop: 10 }}/>}
+
+            {/* --- Pet Section --- */}
+            <View style={styles.modalSection}>
+              {/* <Text style={styles.modalSectionHeader}>Pet</Text> */}
+              <TouchableOpacity style={styles.modalButton} onPress={openUpdateModal}>
+                <View style={styles.modalButtonRow}>
+                  <Icon name="paw-outline" size={22} style={styles.modalButtonIcon} />
+                  <Text style={styles.modalButtonText}>Update Pet Details</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+
+             {/* --- Account Section --- */}
+            <View style={styles.modalSection}>
+              {/* <Text style={styles.modalSectionHeader}>Account</Text> */}
+              <TouchableOpacity style={styles.modalButton} onPress={handleLogout}>
+                 <View style={styles.modalButtonRow}>
+                  <Icon name="log-out-outline" size={22} style={styles.modalButtonIcon} />
+                  <Text style={styles.modalButtonText}>Logout</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.modalButton, styles.modalDeleteButton]} onPress={handleDeleteAccount}>
+                 <View style={styles.modalButtonRow}>
+                  <Icon name="trash-outline" size={22} style={[styles.modalButtonIcon, styles.modalDeleteButtonText]} />
+                  <Text style={[styles.modalButtonText, styles.modalDeleteButtonText]}>Delete Account</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+
+             {/* Loading Indicator */}
+             {isSaving && <ActivityIndicator size="small" color="#A06CD5" style={{ marginVertical: 10 }}/>}
+
             <TouchableOpacity
               style={[styles.modalButton, styles.closeButton]}
               onPress={() => setShowSettingsModal(false)}
             >
-              <Text style={styles.buttonText}>Close</Text>
+              <View style={styles.modalButtonRow}>
+                  <Icon name="close-circle-outline" size={22} style={styles.modalButtonIcon} />
+                  <Text style={styles.buttonText}>Close</Text>
+              </View>
             </TouchableOpacity>
           </View>
         </View>
@@ -1013,6 +1039,8 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "bold",
+    lineHeight: 18,
+    textAlignVertical: 'center',
   },
   buttonDisabled: {
     backgroundColor: "#ccc",
@@ -1055,7 +1083,7 @@ const styles = StyleSheet.create({
        fontSize: 15,
    },
 
-  modalOverlay: {
+   modalOverlay: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
@@ -1063,10 +1091,11 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     width: "90%",
-    maxWidth: 350,
-    padding: 20,
+    maxWidth: 380,
+    paddingVertical: 20,
+    paddingHorizontal: 15,
     backgroundColor: "#fff",
-    borderRadius: 10,
+    borderRadius: 12,
     alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -1077,10 +1106,25 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: "bold",
-    marginBottom: 15,
+    marginBottom: 20, 
     color: '#333',
     textAlign: 'center',
   },
+
+  modalSection: {
+    width: '100%',
+    marginBottom: 15,
+    borderTopWidth: 1, 
+    borderTopColor: '#eee',
+    paddingTop: 15, 
+  },
+
+  modalDeleteButton: {
+    backgroundColor: '#ffebee',
+    borderColor: '#dc3545',
+    borderWidth: 1,
+  },
+
    modalText: {
      fontSize: 15,
      marginBottom: 5,
@@ -1095,27 +1139,46 @@ const styles = StyleSheet.create({
      fontStyle: 'italic',
      textAlign: 'center',
    },
+
+
    modalButton: {
-       width: '100%',
-       paddingVertical: 12,
-       borderRadius: 8,
-       alignItems: 'center',
-       marginTop: 10,
-       backgroundColor: '#f0f0f0',
-   },
-   modalButtonText: {
-       color: '#333',
-       fontSize: 16,
-       fontWeight: 'bold',
-   },
+    width: '100%',
+    paddingVertical: 12, 
+    // backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    marginTop: 8, 
+  },
+  modalButtonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+  },
+  modalButtonIcon: {
+    marginRight: 8,
+    color: '#555',
+  },
+  modalButtonText: {
+    color: '#333',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+
+  modalDeleteButtonText: {
+    color: '#dc3545',
+    fontWeight: 'bold',
+  },
+
    deleteAccountButton: {
       backgroundColor: '#dc3545',
    },
    saveButton: {
        backgroundColor: '#007bff',
+       alignItems: 'center',
    },
    closeButton: {
-     backgroundColor: "#6c757d",
+     backgroundColor: "#adb5bd",
+     marginTop: 15,
+     alignItems: 'center',
    },
    modalInput: {
      width: '100%',
