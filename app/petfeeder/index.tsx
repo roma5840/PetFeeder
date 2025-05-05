@@ -26,6 +26,11 @@
 
 // v3:
 // edit feeding weight
+
+// v4 changes:
+// edit manual pet feeding grams (three digits, max 500g, no decimal)
+// add fun fact for pet weight
+// three digits and two decimal places on pet weight
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
@@ -395,6 +400,20 @@ export default function PetFeeder() {
     }
   };
 
+  const handleTempWeightChange = (text) => {
+    if (text === '') {
+      setTempPetDetails({ ...tempPetDetails, weight: '' });
+      return;
+    }
+
+    const regex = /^(\d{1,3}(\.\d{0,2})?)?$/;
+
+    if (regex.test(text)) {
+      setTempPetDetails({ ...tempPetDetails, weight: text });
+    }
+  };
+
+
 
   const handleFeedNow = async () => {
     const feedAmount = parseInt(manualWeight);
@@ -436,51 +455,113 @@ export default function PetFeeder() {
   };
 
   const handleSaveChanges = async () => {
+    console.log("handleSaveChanges triggered");
     if (!tempPetDetails.name.trim() || !tempPetDetails.type.trim() || !tempPetDetails.weight.trim()) {
         Alert.alert("Missing Information", "Please fill in all pet details.");
-        return;
-    }
-    const weightValue = parseFloat(tempPetDetails.weight);
-     if (isNaN(weightValue) || weightValue <= 0) {
-        Alert.alert("Invalid Weight", "Please enter a valid positive number for weight (kg).");
+        console.log("Validation failed: Missing fields");
         return;
     }
 
+    const weightRegex = /^\d{1,3}(\.\d{1,2})?$/;
+    if (!weightRegex.test(tempPetDetails.weight) || tempPetDetails.weight === '.') {
+         Alert.alert("Invalid Weight", "Please enter a valid weight format (e.g., 10.5 or 15). Max 3 digits before decimal, 2 after.");
+         console.log("Validation failed: Invalid weight format", tempPetDetails.weight);
+         return;
+    }
 
-    if (!user) {
-      Alert.alert("Error", "User not logged in.");
+    const numericWeight = parseFloat(tempPetDetails.weight);
+
+    if (isNaN(numericWeight)) {
+        Alert.alert("Invalid Weight", "Please enter a valid number for weight.");
+        console.log("Validation failed: Weight is NaN");
+        return;
+    }
+
+    if (numericWeight <= 0) {
+        Alert.alert("Invalid Weight", "Weight must be greater than zero.");
+        console.log("Validation failed: Weight <= 0");
+        return;
+    }
+
+    if (numericWeight >= 155) {
+        console.log("Weight >= 155, showing confirmation alert.");
+        Alert.alert(
+            "Confirm Pet Weight",
+            `Are you sure your pet weighs ${numericWeight} kg?\n\nFun Fact: The heaviest dog, Aicama Zorba, weighed 155.6 kg; and the heaviest domestic cat, Himmy, weighed 21.3 kg!`,
+            [
+                {
+                    text: "No",
+                    style: "cancel",
+                    onPress: () => console.log("Weight confirmation cancelled by user."),
+                },
+                {
+                    text: "Yes",
+                    onPress: () => {
+                        console.log("Weight confirmed by user, proceeding to save...");
+                        proceedWithSave();
+                    }
+                },
+            ],
+            { cancelable: false }
+        );
+    } else {
+        console.log("Weight < 155, proceeding directly to save...");
+        proceedWithSave();
+    }
+
+  };
+
+
+  const proceedWithSave = async () => {
+    console.log("proceedWithSave called"); 
+    if (!auth.currentUser) {
+      Alert.alert("Error", "User session not found. Please log in again.");
+      // console.error("proceedWithSave error: User not found");
+      // await handleLogout(); // Example: Force logout if user becomes null unexpectedly
       return;
     }
+    const currentUid = auth.currentUser.uid;
 
     setIsSaving(true);
-    const userRef = ref(db, `users/${user.uid}`);
+    console.log("Setting isSaving to true");
+
+    const userRef = ref(db, `users/${currentUid}`);
+
     const updates = {
-      petName: tempPetDetails.name,
+      petName: tempPetDetails.name.trim(),
       petType: tempPetDetails.type,
       petWeight: tempPetDetails.weight,
     };
+    console.log("Update payload:", updates);
 
     try {
+      console.log("Attempting Firebase update...");
       await update(userRef, updates);
+      console.log("Firebase update successful.");
 
       setPetName(updates.petName);
       setPetType(updates.petType);
       setPetWeight(updates.petWeight);
       const newRecWeight = calculateRecommendedWeight(updates.petWeight);
       setRecommendedWeight(newRecWeight);
-      // if (manualWeight === recommendedWeight && newRecWeight !== "N/A") {
-      //    setManualWeight(newRecWeight);
-      // }
+      console.log("Local state updated.");
 
       setShowUpdatePetModal(false);
-      Alert.alert("Success", "Pet details updated.");
+      console.log("Modal closed.");
+
+      setTimeout(() => {
+            Alert.alert("Success", "Pet details updated.");
+        }, 100);
+
     } catch (error) {
       console.error("Error updating pet details:", error);
-      Alert.alert("Error", "Failed to update pet details. Please try again.");
+      Alert.alert("Error", "Failed to update pet details. Please check your connection and try again.");
     } finally {
+      console.log("Setting isSaving to false");
       setIsSaving(false);
     }
   };
+
 
 
   const handleLogout = async () => {
@@ -930,9 +1011,14 @@ const handleDeleteAccount = () => {
             <TextInput
                 style={styles.modalInput}
                 placeholder="Pet Weight (kg)"
-                keyboardType="numeric"
+
+                // keyboardType="numeric"
+                // value={tempPetDetails.weight}
+                // onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, weight: text })}
+                keyboardType="decimal-pad" // Allow decimal input
                 value={tempPetDetails.weight}
-                onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, weight: text })}
+                onChangeText={handleTempWeightChange}
+
              />
 
              <TouchableOpacity
