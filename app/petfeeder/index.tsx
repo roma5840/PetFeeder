@@ -977,6 +977,8 @@ const handleDeleteAccount = () => {
                 placeholder="Pet Name"
                 value={tempPetDetails.name}
                 onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, name: text })}
+                autoCapitalize="words" 
+                maxLength={20}
             />
             <Text style={styles.modalLabel}>Pet Type:</Text>
             <View style={styles.petTypeSelectionContainer}>

@@ -130,6 +130,7 @@ export default function PetName() {
                     value={petName}
                     onChangeText={setPetName}
                     autoCapitalize="words" 
+                    maxLength={20}
                 />
 
                 <TextInput
