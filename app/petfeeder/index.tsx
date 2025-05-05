@@ -20,6 +20,9 @@
 
 // v2.1:
 // fix settings ui
+
+// v2.1.1:
+// bug fix (feeding control keeps refreshing)
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
@@ -254,7 +257,7 @@ export default function PetFeeder() {
         }
     };
 
-  }, [user, db, calculateRecommendedWeight, manualWeight]);
+  }, [user, db, calculateRecommendedWeight]);
 
 
 
