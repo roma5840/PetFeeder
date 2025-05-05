@@ -14,6 +14,9 @@
 
 // v1.2:
 // updated pet details (from text type to selectable between dog and cat)
+
+// v2:
+// added history
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
@@ -39,7 +42,9 @@ import {
   set,
   update,
   onValue,
-  off,
+  query,
+  orderByKey,
+  limitToLast,
 } from "firebase/database";
 
 export default function PetFeeder() {
@@ -66,8 +71,12 @@ export default function PetFeeder() {
   const [foodLevelStatus, setFoodLevelStatus] = useState("Unknown");
   const [feederError, setFeederError] = useState("None");
 
+  const [feedingHistory, setFeedingHistory] = useState([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+
   const statusListenerUnsubscribe = useRef(null);
   const schedulesListenerUnsubscribe = useRef(null);
+  const historyListenerUnsubscribe = useRef(null);
 
   const auth = getAuth();
   const db = getDatabase();
@@ -89,55 +98,66 @@ export default function PetFeeder() {
     if (!user) {
         console.log("useEffect: No user found, skipping listener attachment.");
         setIsLoading(false);
-         if (statusListenerUnsubscribe.current) {
-            statusListenerUnsubscribe.current();
-            statusListenerUnsubscribe.current = null;
-        }
-         if (schedulesListenerUnsubscribe.current) {
-            schedulesListenerUnsubscribe.current();
-            schedulesListenerUnsubscribe.current = null;
-        }
-        return;
+        setIsLoadingHistory(false); 
+         if (statusListenerUnsubscribe.current) { statusListenerUnsubscribe.current(); statusListenerUnsubscribe.current = null; }
+         if (schedulesListenerUnsubscribe.current) { schedulesListenerUnsubscribe.current(); schedulesListenerUnsubscribe.current = null; }
+         if (historyListenerUnsubscribe.current) { historyListenerUnsubscribe.current(); historyListenerUnsubscribe.current = null; }
+        return; 
     }
 
     console.log(`useEffect: Setting up for user ${user.uid}`);
+
     setIsLoading(true);
-    let initialDataFetched = false;
-    let listenersAttached = false;
+    setIsLoadingHistory(true);
+    let initialBaseDataFetched = false;
+    let statusListenerAttached = false;
+    let schedulesListenerAttached = false;
+    let historyListenerAttached = false;
 
     const userBaseRef = ref(db, `users/${user.uid}`);
     const statusRef = ref(db, `users/${user.uid}/feederStatus`);
     const schedulesRef = ref(db, `users/${user.uid}/schedules`);
+    const historyRef = query(
+        ref(db, `users/${user.uid}/feedingHistory`),
+        orderByKey(),
+        limitToLast(50)
+    );
+
+    const checkAllLoaded = () => {
+         if (initialBaseDataFetched && statusListenerAttached && schedulesListenerAttached && historyListenerAttached) {
+            console.log("useEffect: All data and listeners ready, setting loading false.");
+            setIsLoading(false);
+            setIsLoadingHistory(false);
+        }
+    }
 
     get(userBaseRef).then((snapshot) => {
+        console.log("useEffect: Initial base data received.");
         if (snapshot.exists()) {
             const data = snapshot.val();
             setPetName(data.petName || "Unknown");
             setPetType(data.petType || "Unknown");
             setPetWeight(data.petWeight || "");
-
             const recWeight = calculateRecommendedWeight(data.petWeight || "");
             setRecommendedWeight(recWeight);
-            if (!manualWeight) {
-                setManualWeight(recWeight !== "N/A" ? recWeight : "100");
-            }
+            if (!manualWeight) { setManualWeight(recWeight !== "N/A" ? recWeight : "100"); }
         } else {
+            console.warn(`useEffect: No base data found for user ${user.uid}.`);
             setPetName("N/A");
             setPetType("N/A");
             setPetWeight("");
             setRecommendedWeight("N/A");
-             if (!manualWeight) setManualWeight("100");
+            if (!manualWeight) setManualWeight("100");
         }
-         initialDataFetched = true;
-         if (listenersAttached) setIsLoading(false);
+        initialBaseDataFetched = true;
+        checkAllLoaded();
     }).catch(error => {
         console.error("useEffect: Error fetching initial pet data:", error);
         Alert.alert("Error", "Could not fetch pet details.");
-        setIsLoading(false);
+        setIsLoading(false); setIsLoadingHistory(false);
     });
 
-    console.log(`useEffect: Attaching listeners for UID: ${user.uid}`);
-
+    console.log(`useEffect: Attaching status listener for ${user.uid}`);
     statusListenerUnsubscribe.current = onValue(statusRef, (snapshot) => {
         console.log("useEffect: Feeder status data received.");
         if (snapshot.exists()) {
@@ -148,66 +168,90 @@ export default function PetFeeder() {
             if (statusData.lastFeedTimestamp) {
                 const date = new Date(statusData.lastFeedTimestamp);
                 const amount = statusData.lastFeedAmount || 'N/A';
-                setLastFeedInfo(`${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${amount}g)`);
+                 if (!isNaN(date.getTime())) {
+                    setLastFeedInfo(`${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${amount}g)`);
+                } else {
+                    console.warn("useEffect: Invalid lastFeedTimestamp received:", statusData.lastFeedTimestamp);
+                    setLastFeedInfo("Invalid Date");
+                }
             } else {
                 setLastFeedInfo("N/A");
             }
         } else {
+            console.log("useEffect: No feeder status data found, resetting state.");
             setFeederOnline(false);
             setFoodLevelStatus("Unknown");
             setFeederError("None");
             setLastFeedInfo("N/A");
         }
-        listenersAttached = true;
-        if(initialDataFetched) setIsLoading(false);
+        statusListenerAttached = true;
+        checkAllLoaded();
     }, (error) => {
         console.error("useEffect: Error listening to feeder status:", error);
-        if (error.code !== 'PERMISSION_DENIED') {
-            Alert.alert("Error", "Could not load feeder status.");
-        }
-        setIsLoading(false);
+        if (error.code !== 'PERMISSION_DENIED') { Alert.alert("Error", "Could not load feeder status."); }
+        setIsLoading(false); setIsLoadingHistory(false);
     });
 
+    console.log(`useEffect: Attaching schedules listener for ${user.uid}`);
     schedulesListenerUnsubscribe.current = onValue(schedulesRef, (snapshot) => {
         console.log("useEffect: Schedules data received.");
         const schedulesData = snapshot.val();
         let schedulesArray = [];
-        if (typeof schedulesData === 'object' && schedulesData !== null) {
-            schedulesArray = Object.values(schedulesData);
-        } else if (Array.isArray(schedulesData)) {
-            schedulesArray = schedulesData;
-        }
+        if (typeof schedulesData === 'object' && schedulesData !== null) { schedulesArray = Object.values(schedulesData); }
+        else if (Array.isArray(schedulesData)) { schedulesArray = schedulesData; }
         setSchedules(schedulesArray);
-        listenersAttached = true;
-        if(initialDataFetched) setIsLoading(false);
+        schedulesListenerAttached = true;
+        checkAllLoaded();
     }, (error) => {
         console.error("useEffect: Error listening to schedules:", error);
-        if (error.code !== 'PERMISSION_DENIED') {
-            Alert.alert("Error", "Could not load schedules.");
-        }
-        setIsLoading(false);
+        if (error.code !== 'PERMISSION_DENIED') { Alert.alert("Error", "Could not load schedules."); }
+        setIsLoading(false); setIsLoadingHistory(false);
     });
 
+    console.log(`useEffect: Attaching history listener for ${user.uid}`);
+    historyListenerUnsubscribe.current = onValue(historyRef, (snapshot) => {
+        console.log("useEffect: Feeding history data received.");
+        const historyData = snapshot.val();
+        let historyArray = [];
+        if (historyData) {
+            historyArray = Object.keys(historyData).map(key => ({
+                id: key,
+                timestamp: parseInt(key, 10),
+                ...historyData[key]
+            })).filter(item => !isNaN(item.timestamp));
+            historyArray.sort((a, b) => b.timestamp - a.timestamp);
+        }
+        setFeedingHistory(historyArray);
+        historyListenerAttached = true;
+        checkAllLoaded();
+    }, (error) => {
+        console.error("useEffect: Error listening to feeding history:", error);
+        if (error.code !== 'PERMISSION_DENIED') { Alert.alert("Error", "Could not load feeding history."); }
+        setIsLoading(false); setIsLoadingHistory(false);
+    });
 
     return () => {
         console.log(`useEffect: Running cleanup for PetFeeder (User: ${user?.uid})`);
         if (statusListenerUnsubscribe.current) {
             console.log("useEffect cleanup: Detaching status listener.");
-            statusListenerUnsubscribe.current();
+            try { statusListenerUnsubscribe.current(); } catch(e) { console.error("Cleanup detach status error:", e); }
             statusListenerUnsubscribe.current = null;
-        } else {
-             console.log("useEffect cleanup: Status listener already detached or never attached.");
         }
+
         if (schedulesListenerUnsubscribe.current) {
             console.log("useEffect cleanup: Detaching schedules listener.");
-            schedulesListenerUnsubscribe.current();
+            try { schedulesListenerUnsubscribe.current(); } catch(e) { console.error("Cleanup detach schedules error:", e); }
             schedulesListenerUnsubscribe.current = null;
-        } else {
-             console.log("useEffect cleanup: Schedules listener already detached or never attached.");
+        }
+
+        if (historyListenerUnsubscribe.current) {
+            console.log("useEffect cleanup: Detaching history listener.");
+            try { historyListenerUnsubscribe.current(); } catch(e) { console.error("Cleanup detach history error:", e); }
+            historyListenerUnsubscribe.current = null;
         }
     };
 
-  }, [user, db, calculateRecommendedWeight]);
+  }, [user, db, calculateRecommendedWeight, manualWeight]);
 
 
 
@@ -411,29 +455,21 @@ export default function PetFeeder() {
     console.log("handleLogout: Attempting to detach listeners...");
     if (statusListenerUnsubscribe.current) {
         console.log("handleLogout: Detaching status listener.");
-        try {
-            statusListenerUnsubscribe.current();
-            statusListenerUnsubscribe.current = null;
-            console.log("handleLogout: Status listener detached successfully.");
-        } catch (e) {
-             console.error("handleLogout: Error detaching status listener:", e);
-        }
-    } else {
-        console.log("handleLogout: Status listener ref is null (already detached or never attached).");
-    }
+        try { statusListenerUnsubscribe.current(); } catch (e) { console.error("Logout detach status error:", e); }
+        statusListenerUnsubscribe.current = null;
+    } else { console.log("handleLogout: Status listener ref is null."); }
 
     if (schedulesListenerUnsubscribe.current) {
         console.log("handleLogout: Detaching schedules listener.");
-         try {
-            schedulesListenerUnsubscribe.current();
-            schedulesListenerUnsubscribe.current = null;
-            console.log("handleLogout: Schedules listener detached successfully.");
-        } catch (e) {
-             console.error("handleLogout: Error detaching schedules listener:", e);
-        }
-    } else {
-        console.log("handleLogout: Schedules listener ref is null (already detached or never attached).");
-    }
+        try { schedulesListenerUnsubscribe.current(); } catch (e) { console.error("Logout detach schedules error:", e); }
+        schedulesListenerUnsubscribe.current = null;
+    } else { console.log("handleLogout: Schedules listener ref is null."); }
+
+    if (historyListenerUnsubscribe.current) {
+         console.log("handleLogout: Detaching history listener.");
+         try { historyListenerUnsubscribe.current(); } catch (e) { console.error("Logout detach history error:", e); }
+        historyListenerUnsubscribe.current = null;
+    } else { console.log("handleLogout: History listener ref is null."); }
 
     try {
         console.log("handleLogout: Calling signOut...");
@@ -443,7 +479,7 @@ export default function PetFeeder() {
         Alert.alert("Error", "Failed to log out. Please try again.");
         console.error("handleLogout: SignOut error:", error);
     }
-};
+  };
 
 
 
@@ -467,26 +503,21 @@ const handleDeleteAccount = () => {
                   setIsSaving(true);
 
                   console.log("handleDeleteAccount: Attempting to detach listeners...");
-                   if (statusListenerUnsubscribe.current) {
+                  if (statusListenerUnsubscribe.current) {
                       console.log("handleDeleteAccount: Detaching status listener.");
-                      try {
-                          statusListenerUnsubscribe.current();
-                          statusListenerUnsubscribe.current = null;
-                          console.log("handleDeleteAccount: Status listener detached.");
-                      } catch(e) { console.error("handleDeleteAccount: Error detaching status listener:", e); }
-                  } else {
-                      console.log("handleDeleteAccount: Status listener ref is null.");
-                  }
-                   if (schedulesListenerUnsubscribe.current) {
+                      try { statusListenerUnsubscribe.current(); } catch(e) { console.error("Delete detach status error:", e); }
+                      statusListenerUnsubscribe.current = null;
+                  } else { console.log("handleDeleteAccount: Status listener ref is null."); }
+                  if (schedulesListenerUnsubscribe.current) {
                       console.log("handleDeleteAccount: Detaching schedules listener.");
-                      try {
-                          schedulesListenerUnsubscribe.current();
-                          schedulesListenerUnsubscribe.current = null;
-                          console.log("handleDeleteAccount: Schedules listener detached.");
-                      } catch (e) { console.error("handleDeleteAccount: Error detaching schedules listener:", e); }
-                  } else {
-                      console.log("handleDeleteAccount: Schedules listener ref is null.");
-                  }
+                      try { schedulesListenerUnsubscribe.current(); } catch (e) { console.error("Delete detach schedules error:", e); }
+                      schedulesListenerUnsubscribe.current = null;
+                  } else { console.log("handleDeleteAccount: Schedules listener ref is null."); }
+                  if (historyListenerUnsubscribe.current) {
+                      console.log("handleDeleteAccount: Detaching history listener.");
+                      try { historyListenerUnsubscribe.current(); } catch (e) { console.error("Delete detach history error:", e); }
+                      historyListenerUnsubscribe.current = null;
+                  } else { console.log("handleDeleteAccount: History listener ref is null."); }
 
                   try {
                       // Delete Realtime Database data
@@ -516,6 +547,23 @@ const handleDeleteAccount = () => {
       ]
     );
   };
+
+  const formatHistoryTimestamp = (timestamp) => {
+    if (!timestamp || isNaN(timestamp)) return "Invalid Date";
+    try {
+        const date = new Date(timestamp);
+         if (isNaN(date.getTime())) {
+             return "Invalid Date";
+         }
+        const dateString = date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        const timeString = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: true });
+        return `${dateString}, ${timeString}`;
+    } catch (e) {
+        console.error("Error formatting timestamp:", e, "Timestamp:", timestamp);
+        return "Invalid Date";
+    }
+};
+
 
 
 
@@ -612,7 +660,37 @@ const handleDeleteAccount = () => {
              <Text style={styles.noSchedulesText}>No schedules added yet.</Text>
         ) : (
             <FlatList
-                data={schedules.sort((a, b) => a.time.localeCompare(b.time))}
+            data={schedules.slice().sort((a, b) => {
+              const timeToMinutes = (timeStr) => {
+                  if (!timeStr || typeof timeStr !== 'string') return 0;
+                  try {
+                      const lowerTime = timeStr.toLowerCase().trim();
+                      const isPM = lowerTime.includes('pm');
+                      const isAM = lowerTime.includes('am');
+                      const timePart = lowerTime.replace('am', '').replace('pm', '').trim();
+                      let [hours, minutes] = timePart.split(':').map(Number);
+          
+                      if (isNaN(hours) || isNaN(minutes)) return 0; 
+
+                      if (isPM && hours !== 12) {
+                          hours += 12;
+                      } else if (isAM && hours === 12) {
+                          hours = 0;
+                      }
+                      if (hours === 24) hours = 0;
+          
+                      return hours * 60 + minutes;
+                  } catch (e) {
+                      console.error("Error parsing schedule time for sort:", timeStr, e);
+                      return 0;
+                  }
+              };
+          
+              const timeA = timeToMinutes(a.time);
+              const timeB = timeToMinutes(b.time);
+              return timeA - timeB; 
+            })}
+          
                 keyExtractor={(item) => item.id}
                 renderItem={({ item }) => (
                 <View style={styles.scheduleItem}>
@@ -638,6 +716,45 @@ const handleDeleteAccount = () => {
             />
         )}
       </View>
+
+    <View style={styles.sectionContainer}>
+      <Text style={styles.sectionTitle}>Feeding History (Last 20)</Text>
+
+      {isLoadingHistory && (
+          <ActivityIndicator size="small" color="#A06CD5" style={{ marginVertical: 15 }} />
+      )}
+
+      {!isLoadingHistory && feedingHistory.length === 0 && (
+          <Text style={styles.noHistoryText}>No feeding history recorded yet.</Text>
+      )}
+
+      {!isLoadingHistory && feedingHistory.length > 0 && (
+          <FlatList
+              data={feedingHistory}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                  <View style={styles.historyItem}>
+                      <View style={styles.historyInfo}>
+                          <Text style={styles.historyTimestamp}>
+                              {formatHistoryTimestamp(item.timestamp)}
+                          </Text>
+                          <Text style={styles.historyDetails}>
+                              Amount: {item.amount || 'N/A'}g
+                          </Text>
+                      </View>
+                      <Text style={[
+                          styles.historyType,
+                          item.type === 'manual' ? styles.historyTypeManual : styles.historyTypeScheduled
+                      ]}>
+                          {item.type === 'manual' ? 'Manual' : 'Scheduled'}
+                      </Text>
+                  </View>
+              )}
+              scrollEnabled={false}
+              ItemSeparatorComponent={() => <View style={styles.historySeparator} />}
+          />
+      )}
+    </View>
 
       {/* DateTime Picker Modal */}
       {showPicker && (
@@ -1038,6 +1155,57 @@ const styles = StyleSheet.create({
   },
   petTypeButtonTextSelected: {
     color: '#fff',
+  },
+
+  noHistoryText: {
+    textAlign: 'center',
+    color: '#888',
+    marginTop: 15,
+    fontSize: 15,
+    fontStyle: 'italic',
+  },
+  historyItem: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: 10,
+      // backgroundColor: '#f9f9f9',
+      // borderRadius: 5,
+      // marginBottom: 5,
+  },
+  historyInfo: {
+      flex: 1,
+      marginRight: 10,
+  },
+  historyTimestamp: {
+      fontSize: 14,
+      color: '#555',
+      fontWeight: 'bold',
+  },
+  historyDetails: {
+      fontSize: 13,
+      color: '#666',
+  },
+  historyType: {
+      fontSize: 12,
+      fontWeight: 'bold',
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 4,
+      overflow: 'hidden',
+  },
+  historyTypeManual: {
+      backgroundColor: '#e2f0d9',
+      color: '#4CAF50',
+  },
+  historyTypeScheduled: {
+      backgroundColor: '#e0e8f0',
+      color: '#007bff',
+  },
+  historySeparator: {
+      height: 1,
+      backgroundColor: '#eee',
+      width: '100%',
   },
 
 });
