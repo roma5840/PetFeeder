@@ -6,6 +6,9 @@
 
 // v2.1:
 // adjusted login captcha box and ui padding
+
+// v3:
+// fixed for resetpassword
 import { useState, useEffect } from "react";
 import {
   View,
@@ -167,19 +170,30 @@ export default function Login() {
         </TouchableOpacity>
       </View>
 
-      {/* CAPTCHA Section */}
-      <View style={styles.captchaContainer}>
-        <Text style={styles.captchaQuestion}>What is {num1} + {num2}?</Text>
-        <TextInput
-          style={styles.captchaInput}
-          placeholder="Enter answer"
-          placeholderTextColor="#888"
-          value={captchaAnswer}
-          onChangeText={setCaptchaAnswer}
-          keyboardType="number-pad" 
-          maxLength={3} 
-        />
+      <View style={styles.captchaForgotRow}>
+
+        <View style={styles.captchaGroup}>
+          <Text style={styles.captchaQuestion}>What is {num1} + {num2}?</Text>
+          <TextInput
+            style={styles.captchaInput}
+            placeholder="?"
+            placeholderTextColor="#aaa"
+            value={captchaAnswer}
+            onChangeText={setCaptchaAnswer}
+            keyboardType="number-pad"
+            maxLength={3}
+          />
+        </View>
+
+
+        <Link href="/resetpassword" asChild>
+        <TouchableOpacity style={styles.forgotPasswordButtonContainer}>
+          <Text style={styles.forgotPasswordLink}>Forgot Password?</Text>
+        </TouchableOpacity>
+        </Link>
+
       </View>
+
 
       {/* Login Button */}
       <TouchableOpacity
@@ -212,7 +226,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 20,
     backgroundColor: "#f8f9fa",
-    paddingBottom: 120,
+    paddingBottom: 80,
   },
   logo: {
     width: 250,
@@ -237,17 +251,22 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     fontSize: 16,
     color: '#333',
-  },
-  passwordContainer: {
-    position: "relative",
-    justifyContent: "center",
     width: '100%',
   },
+  passwordContainer: {
+    position: 'relative',
+    width: '100%',
+  },
+  passwordInput: {
+     paddingRight: 60, 
+  },
   eyeButton: {
-    position: "absolute",
-    right: 15, 
-    transform: [{ translateY: -10 }],
-    padding: 5,
+    position: 'absolute', 
+    right: 0,
+    top: 0,
+    bottom: 16,
+    justifyContent: 'center',
+    paddingHorizontal: 15, 
     zIndex: 1,
   },
   eyeButtonText: {
@@ -255,44 +274,73 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 14,
   },
-  captchaContainer: {
-    marginBottom: 15,
-
-    // added for v2.1
+  captchaForgotRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     width: '100%',
+    marginBottom: 20,
+    // marginTop: 5,
+  },
+
+  forgotPasswordContainer: {
+    width: '100%',
+    alignItems: 'flex-end',
+    marginBottom: 15,
+  },
+  forgotPasswordLink: {
+    color: "#A06CD5",
+    fontWeight: "normal",
+    fontSize: 14,
+    // alignSelf: 'flex-start',
+  },
+  captchaRow: {
+    flexDirection: 'row',
+    // justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 20,
+  },
+  captchaGroup: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
   captchaQuestion: {
     fontSize: 16,
-    marginBottom: 8,
     color: '#555',
-    // textAlign: 'left', //removed for v2.1
+    marginRight: 8,
+    width: 135, // Adjust width for long question
+
   },
   captchaInput: {
-    height: 50,
+    height: 45,
+    width: 60,
     borderWidth: 1,
     borderColor: "#A06CD5",
     borderRadius: 8,
-    paddingHorizontal: 15,
+    // paddingHorizontal: 10,
     backgroundColor: "#fff",
     fontSize: 16,
     color: '#333',
-
-    // added for v2.1
-    width: '40%',
     textAlign: 'center',
+  },
+  forgotPasswordButtonContainer: {
+    alignSelf: 'flex-start',
+    // paddingTop: 2,
+    // paddingVertical: 5,
+    // paddingHorizontal: 5,
+    marginTop: -5,
   },
   button: {
     backgroundColor: "#A06CD5",
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: "center",
-    marginTop: 10,
+    marginTop: 10, 
     width: '100%',
   },
   disabledButton: {
-    // backgroundColor: "#E0E0E0", (grey)
-    backgroundColor: "#DAC3E8",
+    backgroundColor: "#E0E0E0", 
   },
   buttonText: {
     color: "#fff",
