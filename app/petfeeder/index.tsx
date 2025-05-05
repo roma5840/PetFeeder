@@ -17,6 +17,9 @@
 
 // v2:
 // added history
+
+// v2.1:
+// fix settings ui
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
