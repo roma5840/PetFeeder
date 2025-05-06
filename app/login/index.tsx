@@ -9,6 +9,9 @@
 
 // v3:
 // fixed for resetpassword
+
+// v6:
+// still for testing: bug fix on routing (might be stable?)
 import { useState, useEffect } from "react";
 import {
   View,
@@ -22,7 +25,7 @@ import {
   ActivityIndicator 
 } from "react-native";
 import { Link, useRouter, useNavigation } from "expo-router";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
 import { auth } from "../firebaseConfig"; 
 import { getDatabase, ref, get } from "firebase/database";
 
@@ -84,23 +87,63 @@ export default function Login() {
     setLoading(true);
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      const user = userCredential.user;
 
-      if (!userCredential.user.emailVerified) {
-        await auth.signOut(); 
-        Alert.alert("Email Not Verified", "Please verify your email address before logging in. Check your inbox (and spam folder).");
-        setLoading(false);
+      if (!user.emailVerified) {
+        console.log("Login successful but email not verified for:", user.email);
+    
+        Alert.alert(
+          "Email Not Verified",
+          "Your email address needs verification before you can log in fully. Would you like to resend the verification link?",
+          [
+            {
+              text: "Resend Link",
+              onPress: async () => {
+                console.log("Resend verification link requested.");
+                try {
+                  await sendEmailVerification(user);
+                  Alert.alert("Link Sent", "Verification link resent. Please check your inbox (and spam folder).");
+                } catch (error) {
+                  // console.error("Error resending verification email:", error);
+                  Alert.alert("Error", "Could not resend verification link. Please try again later.");
+                  // if (error.code === 'auth/too-many-requests') { ... }
+                } finally {
+                  console.log("Signing out user after resend attempt/cancel.");
+                  await auth.signOut();
+                  setLoading(false);
+                  generateCaptcha();
+                }
+              },
+            },
+            {
+              text: "OK",
+              onPress: async () => {
+                console.log("Signing out user after pressing OK.");
+                await auth.signOut();
+                setLoading(false);
+                generateCaptcha();
+              },
+              style: "cancel",
+            },
+          ],
+          { cancelable: false }
+        );
+    
         return;
       }
 
-      const db = getDatabase();
-      const userRef = ref(db, `users/${userCredential.user.uid}`);
-      const snapshot = await get(userRef);
+      // console.log("User verified, checking database...");
 
-      if (snapshot.exists() && snapshot.val().petName) {
-        router.replace("/petfeeder");
-      } else {
-        router.replace("/");
-      }
+      // const db = getDatabase();
+      // const userRef = ref(db, `users/${userCredential.user.uid}`);
+      // const snapshot = await get(userRef);
+
+      // if (snapshot.exists() && snapshot.val().petName) {
+      //   router.replace("/petfeeder");
+      // } else {
+      //   router.replace("/");
+      // }
+
     } catch (error) {
       let errorMessage = "An unknown login error occurred.";
        if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
@@ -114,6 +157,7 @@ export default function Login() {
       }
       Alert.alert("Login Error", errorMessage);
       generateCaptcha(); 
+      setLoading(false);
     } finally {
       setTimeout(() => setLoading(false), 100);
     }
