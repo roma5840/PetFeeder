@@ -3,6 +3,9 @@
 
 // v5:
 // added account settings (shows email and delete account button)
+
+// v7:
+// added change password with password validation
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
@@ -24,6 +27,9 @@ import {
   getAuth,
   deleteUser,
   signOut,
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
 } from "firebase/auth";
 import {
   getDatabase,
@@ -55,6 +61,19 @@ export default function PetFeeder() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showUpdatePetModal, setShowUpdatePetModal] = useState(false);
   const [showAccountModal, setShowAccountModal] = useState(false); 
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  const [newPassHasMinLength, setNewPassHasMinLength] = useState(false);
+  const [newPassHasUpperCase, setNewPassHasUpperCase] = useState(false);
+  const [newPassHasLowerCase, setNewPassHasLowerCase] = useState(false);
+  const [newPassHasNumber, setNewPassHasNumber] = useState(false);
+  const [newPassHasSpecialChar, setNewPassHasSpecialChar] = useState(false);
+  const [newPasswordsMatch, setNewPasswordsMatch] = useState(false);
 
   const [tempPetDetails, setTempPetDetails] = useState({ name: '', type: '', weight: '' });
 
@@ -416,9 +435,23 @@ export default function PetFeeder() {
   };
 
   const openAccountModal = () => {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmNewPassword('');
+
     setShowSettingsModal(false); 
     setShowAccountModal(true);
   };
+
+  const openChangePasswordModal = () => {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmNewPassword('');
+    // close the main account settings modal (optional)
+    // setShowAccountModal(false);
+    setShowChangePasswordModal(true);
+  };
+
 
   const handleSaveChanges = async () => {
     console.log("handleSaveChanges triggered");
@@ -569,6 +602,108 @@ export default function PetFeeder() {
       { cancelable: false }
     );
   };
+
+  const handleChangePassword = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert("Error", "User not found. Please log in again.");
+      return;
+    }
+
+    if (!currentPassword || !newPassword || !confirmNewPassword) {
+      Alert.alert("Missing Information", "Please fill in all password fields.");
+      return;
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      Alert.alert("Password Mismatch", "New passwords do not match.");
+      return;
+    }
+
+    if (newPassword.length < 6) {
+        Alert.alert("Weak Password", "New password must be at least 6 characters long.");
+        return;
+    }
+
+    const isNewPasswordValid =
+        newPassHasMinLength &&
+        newPassHasUpperCase &&
+        newPassHasLowerCase &&
+        newPassHasNumber &&
+        newPassHasSpecialChar &&
+        newPasswordsMatch;
+
+    if (!isNewPasswordValid) {
+      Alert.alert(
+        "Invalid New Password",
+        "Please ensure your new password meets all the requirements and that the passwords match."
+      );
+      return;
+    }
+
+
+    Keyboard.dismiss();
+    setIsChangingPassword(true);
+
+    try {
+      console.log("handleChangePassword: Attempting re-authentication...");
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, credential);
+      console.log("handleChangePassword: Re-authentication successful.");
+
+      console.log("handleChangePassword: Attempting to update password...");
+      await updatePassword(user, newPassword);
+      console.log("handleChangePassword: Password updated successfully.");
+
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      setShowChangePasswordModal(false);
+      // close the modal / let user close it
+      // setShowAccountModal(false);
+
+      Alert.alert(
+        "Password Changed",
+        "Your password has been successfully updated."
+      );
+
+    } catch (error) {
+      let errorMessage = "Failed to change password. Please try again.";
+      if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        errorMessage = "Incorrect current password.";
+      } else if (error.code === 'auth/weak-password') {
+        errorMessage = "The new password is too weak. Please choose a stronger password.";
+      } else if (error.code === 'auth/requires-recent-login') {
+        errorMessage = "This operation requires a recent login. Please log out and log back in to change your password.";
+      } else if (error.message) {
+        errorMessage = `Password change failed: ${error.message}`;
+      }
+      Alert.alert("Update Error", errorMessage);
+      // setNewPassword('');
+      // setConfirmNewPassword('');
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  const validateNewPassword = (pass: string, confirmPass: string) => {
+    const minLength = pass.length >= 6;
+    const upperCase = /[A-Z]/.test(pass);
+    const lowerCase = /[a-z]/.test(pass);
+    const number = /[0-9]/.test(pass);
+    const specialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(pass);
+    const match = pass === confirmPass && pass.length > 0;
+
+    setNewPassHasMinLength(minLength);
+    setNewPassHasUpperCase(upperCase);
+    setNewPassHasLowerCase(lowerCase);
+    setNewPassHasNumber(number);
+    setNewPassHasSpecialChar(specialChar);
+    setNewPasswordsMatch(match);
+
+    return minLength && upperCase && lowerCase && number && specialChar && match;
+  };
+
 
   const formatHistoryTimestamp = (timestamp) => {
     if (!timestamp || isNaN(timestamp)) return "Invalid Date";
@@ -861,6 +996,19 @@ export default function PetFeeder() {
                     )}
                 </View>
 
+                <View style={styles.modalSection}>
+                    <TouchableOpacity
+                        style={[styles.modalButton, styles.changePasswordTriggerButton]}
+                        onPress={openChangePasswordModal}
+                        disabled={isSaving}
+                    >
+                        <View style={styles.modalButtonRow}>
+                            <Icon name="key-outline" size={22} style={[styles.modalButtonIcon, styles.changePasswordTriggerButtonIconText]} />
+                            <Text style={[styles.modalButtonText, styles.changePasswordTriggerButtonIconText]}>Change Password</Text>
+                        </View>
+                    </TouchableOpacity>
+                </View>
+
                 {/* --- Delete Account Section --- */}
                 <View style={styles.modalSection}>
                     <Text style={styles.modalSectionHeader}>Delete Account</Text>
@@ -892,6 +1040,122 @@ export default function PetFeeder() {
                     </View>
                 </TouchableOpacity>
             </View>
+        </View>
+      </Modal>
+
+      {/* --- Change Password Modal --- */}
+      <Modal
+        visible={showChangePasswordModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => !isChangingPassword && setShowChangePasswordModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Change Password</Text>
+
+            <View style={styles.modalSectionNoBorder}>
+              <TextInput
+                  style={styles.modalInput}
+                  placeholder="Current Password"
+                  placeholderTextColor="#888"
+                  value={currentPassword}
+                  onChangeText={setCurrentPassword}
+                  secureTextEntry={true}
+                  autoComplete="password"
+                  editable={!isChangingPassword}
+              />
+              <TextInput
+                  style={styles.modalInput}
+                  placeholder="New Password"
+                  placeholderTextColor="#888"
+                  value={newPassword}
+                  onChangeText={(text) => {
+                    setNewPassword(text);
+                    validateNewPassword(text, confirmNewPassword);
+                }}
+                  secureTextEntry={true}
+                  autoComplete="new-password"
+                  editable={!isChangingPassword}
+              />
+              <TextInput
+                  style={styles.modalInput}
+                  placeholder="Confirm New Password"
+                  placeholderTextColor="#888"
+                  value={confirmNewPassword}
+                  onChangeText={(text) => {
+                    setConfirmNewPassword(text);
+                    validateNewPassword(newPassword, text);
+                }}
+                  secureTextEntry={true}
+                  autoComplete="new-password"
+                  editable={!isChangingPassword}
+              />
+
+
+               {(newPassword.length > 0 || confirmNewPassword.length > 0) && ( 
+                <View style={styles.passwordChecklistContainer}>
+                  <Text style={styles.passwordChecklistItem}>
+                    <Icon name={newPassHasMinLength ? "checkmark-circle" : "ellipse-outline"} size={16} color={newPassHasMinLength ? styles.validCheck.color : styles.invalidCheck.color} /> Min 6 chars
+                  </Text>
+                  <Text style={styles.passwordChecklistItem}>
+                    <Icon name={newPassHasUpperCase ? "checkmark-circle" : "ellipse-outline"} size={16} color={newPassHasUpperCase ? styles.validCheck.color : styles.invalidCheck.color} /> Uppercase
+                  </Text>
+                  <Text style={styles.passwordChecklistItem}>
+                    <Icon name={newPassHasLowerCase ? "checkmark-circle" : "ellipse-outline"} size={16} color={newPassHasLowerCase ? styles.validCheck.color : styles.invalidCheck.color} /> Lowercase
+                  </Text>
+                  <Text style={styles.passwordChecklistItem}>
+                    <Icon name={newPassHasNumber ? "checkmark-circle" : "ellipse-outline"} size={16} color={newPassHasNumber ? styles.validCheck.color : styles.invalidCheck.color} /> Number
+                  </Text>
+                  <Text style={styles.passwordChecklistItem}>
+                    <Icon name={newPassHasSpecialChar ? "checkmark-circle" : "ellipse-outline"} size={16} color={newPassHasSpecialChar ? styles.validCheck.color : styles.invalidCheck.color} /> Special
+                  </Text>
+                  <Text style={styles.passwordChecklistItem}>
+                    <Icon name={newPasswordsMatch ? "checkmark-circle" : "ellipse-outline"} size={16} color={newPasswordsMatch ? styles.validCheck.color : styles.invalidCheck.color} /> Match
+                  </Text>
+                </View>
+              )}
+
+
+            </View>
+
+            {/* {isChangingPassword && <ActivityIndicator size="small" color="#A06CD5" style={{ marginVertical: 10 }} />} */}
+
+            <TouchableOpacity
+                style={[
+                    styles.modalButton,
+                    styles.updatePasswordButton,
+                    (isChangingPassword || !currentPassword || !newPassword || !confirmNewPassword || newPassword !== confirmNewPassword) && styles.buttonDisabled,
+                ]}
+                onPress={handleChangePassword}
+                disabled={
+                  isChangingPassword ||
+                  !currentPassword ||
+                  !newPassword ||
+                  !confirmNewPassword ||
+                  !(newPassHasMinLength && newPassHasUpperCase && newPassHasLowerCase && newPassHasNumber && newPassHasSpecialChar && newPasswordsMatch)
+              }
+
+            >
+                {isChangingPassword ? <ActivityIndicator size="small" color="#fff" /> : (
+                    <View style={styles.modalButtonRowCenter}>
+                        <Icon name="save-outline" size={20} color="#fff" style={{ marginRight: 5 }} />
+                        <Text style={styles.buttonText}>Update Password</Text>
+                    </View>
+                )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+                style={[styles.modalButton, styles.closeButton, isChangingPassword && styles.buttonDisabled]}
+                onPress={() => setShowChangePasswordModal(false)}
+                disabled={isChangingPassword}
+            >
+                <View style={styles.modalButtonRowCenter}>
+                    <Icon name="close-circle-outline" size={22} style={[styles.modalButtonIcon, { color: '#fff' }]} />
+                    <Text style={styles.buttonText}>Cancel</Text>
+                </View>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
 
@@ -1324,6 +1588,48 @@ const styles = StyleSheet.create({
       backgroundColor: '#eee',
       width: '100%',
       marginVertical: 2, 
+  },
+
+  changePasswordTriggerButton: {
+    backgroundColor: '#f0e8f6',
+    borderColor: '#A06CD5',
+    borderWidth: 1,
+  },
+  changePasswordTriggerButtonIconText: {
+    color: '#A06CD5',
+  },
+
+  updatePasswordButton: {
+    backgroundColor: '#A06CD5',
+    borderColor: '#A06CD5',
+  },
+
+  modalSectionNoBorder: {
+    width: '100%',
+    marginBottom: 15,
+    // paddingTop: 15,
+  },
+
+
+  passwordChecklistContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-around', 
+    marginTop: 5,
+    marginBottom: 10,
+    paddingHorizontal: 5, 
+  },
+  passwordChecklistItem: {
+    fontSize: 12,         
+    marginRight: 8,    
+    marginBottom: 3, 
+    alignItems: 'center', 
+  },
+  validCheck: {
+    color: '#28a745',
+  },
+  invalidCheck: {
+    color: '#dc3545', 
   },
 
 });

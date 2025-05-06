@@ -15,6 +15,6 @@
 
 ## Current Version
 
-v6 - Bug fixes on routing
+v7 - add change password in petfeeder/index with password validation
 
 (Note: Current readme is temporary)
