@@ -834,7 +834,7 @@ export default function PetFeeder() {
               disabled={isSaving}
             >
               <View style={styles.modalButtonRow}>
-                  <Icon name="close-circle-outline" size={22} style={styles.modalButtonIcon} />
+                  <Icon name="close-circle-outline" size={22} style={[styles.modalButtonIcon, { color: '#fff' }]} />
                   <Text style={styles.buttonText}>Close</Text>
               </View>
             </TouchableOpacity>
