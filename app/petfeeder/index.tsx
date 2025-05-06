@@ -1,36 +1,8 @@
 // UPDATED PETFEEDER UI
 // Changes made by me (Ryan):
 
-// v1:
-// 1. UI UPDATES
-// 2. Feeder Status 
-// 3. Feed Now button
-// 4. Update Pet Details
-// 5. Added more error handling
-// NEXT STEPS: ESP32 code needs to use the Firebase library to listen to users/{uid}/commands/feedNow
-
-// v1.1:
-// fixed error handling (cleanup function)
-
-// v1.2:
-// updated pet details (from text type to selectable between dog and cat)
-
-// v2:
-// added history
-
-// v2.1:
-// fix settings ui
-
-// v2.1.1:
-// bug fix (feeding control keeps refreshing)
-
-// v3:
-// edit feeding weight
-
-// v4 changes:
-// edit manual pet feeding grams (three digits, max 500g, no decimal)
-// add fun fact for pet weight
-// three digits and two decimal places on pet weight
+// v5:
+// added account settings (shows email and delete account button)
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
@@ -44,10 +16,15 @@ import {
   Modal,
   ActivityIndicator,
   ScrollView,
+  Keyboard,
 } from "react-native";
 import Icon from "react-native-vector-icons/Ionicons";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { getAuth, deleteUser, signOut } from "firebase/auth";
+import {
+  getAuth,
+  deleteUser,
+  signOut,
+} from "firebase/auth";
 import {
   getDatabase,
   ref,
@@ -71,12 +48,13 @@ export default function PetFeeder() {
   const [showPicker, setShowPicker] = useState(false);
   const [schedules, setSchedules] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSaving, setIsSaving] = useState(false); 
   const [isFeeding, setIsFeeding] = useState(false);
 
   const [showFeedingGuideModal, setShowFeedingGuideModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showUpdatePetModal, setShowUpdatePetModal] = useState(false);
+  const [showAccountModal, setShowAccountModal] = useState(false); 
 
   const [tempPetDetails, setTempPetDetails] = useState({ name: '', type: '', weight: '' });
 
@@ -108,15 +86,15 @@ export default function PetFeeder() {
     return "500";
   }, []);
 
-  useEffect(() => {
+   useEffect(() => {
     if (!user) {
         console.log("useEffect: No user found, skipping listener attachment.");
         setIsLoading(false);
-        setIsLoadingHistory(false); 
+        setIsLoadingHistory(false);
          if (statusListenerUnsubscribe.current) { statusListenerUnsubscribe.current(); statusListenerUnsubscribe.current = null; }
          if (schedulesListenerUnsubscribe.current) { schedulesListenerUnsubscribe.current(); schedulesListenerUnsubscribe.current = null; }
          if (historyListenerUnsubscribe.current) { historyListenerUnsubscribe.current(); historyListenerUnsubscribe.current = null; }
-        return; 
+        return;
     }
 
     console.log(`useEffect: Setting up for user ${user.uid}`);
@@ -134,7 +112,7 @@ export default function PetFeeder() {
     const historyRef = query(
         ref(db, `users/${user.uid}/feedingHistory`),
         orderByKey(),
-        limitToLast(50)
+        limitToLast(20)
     );
 
     const checkAllLoaded = () => {
@@ -267,9 +245,6 @@ export default function PetFeeder() {
 
   }, [user, db, calculateRecommendedWeight]);
 
-
-
-
   const handleAddFeedingTime = () => {
     if (!manualWeight || isNaN(parseInt(manualWeight)) || parseInt(manualWeight) <= 0) {
         Alert.alert("Invalid Weight", "Please enter a valid positive number for the feeding weight before selecting a time.");
@@ -353,6 +328,7 @@ export default function PetFeeder() {
             text: "Delete",
             style: "destructive",
             onPress: async () => {
+                const originalSchedules = [...schedules];
                 const updatedSchedules = schedules.filter((item) => item.id !== id);
                 setSchedules(updatedSchedules);
 
@@ -364,7 +340,7 @@ export default function PetFeeder() {
                   } catch (error) {
                     console.error("Error deleting schedule:", error);
                     Alert.alert("Error", "Failed to delete schedule.");
-                    setSchedules(schedules);
+                    setSchedules(originalSchedules);
                   } finally {
                     setIsSaving(false);
                   }
@@ -376,22 +352,14 @@ export default function PetFeeder() {
 
   };
 
-  // for manual weight change
-  // remove if you want to exceed 500g (no limits on feeding grams - software risk (possible continuous serving of food))
   const handleManualWeightChange = (text) => {
     if (text === '') {
       setManualWeight('');
       return;
     }
-
     const digitsOnly = text.replace(/[^0-9]/g, '');
-
-    if (digitsOnly === '') {
-        return;
-    }
-
+    if (digitsOnly === '') { return; }
     const numericValue = parseInt(digitsOnly, 10);
-
     if (numericValue > 500) {
       Alert.alert("Limit Exceeded", "Maximum feeding weight is 500g.");
       setManualWeight("500");
@@ -405,15 +373,11 @@ export default function PetFeeder() {
       setTempPetDetails({ ...tempPetDetails, weight: '' });
       return;
     }
-
     const regex = /^(\d{1,3}(\.\d{0,2})?)?$/;
-
     if (regex.test(text)) {
       setTempPetDetails({ ...tempPetDetails, weight: text });
     }
   };
-
-
 
   const handleFeedNow = async () => {
     const feedAmount = parseInt(manualWeight);
@@ -421,15 +385,12 @@ export default function PetFeeder() {
       Alert.alert("Invalid Amount", "Please enter a valid positive feeding weight (g).");
       return;
     }
-
     if (!user) {
       Alert.alert("Error", "User not logged in.");
       return;
     }
-
     setIsFeeding(true);
     const commandRef = ref(db, `users/${user.uid}/commands/feedNow`);
-
     try {
       await set(commandRef, {
         amount: feedAmount,
@@ -454,6 +415,11 @@ export default function PetFeeder() {
     setShowUpdatePetModal(true);
   };
 
+  const openAccountModal = () => {
+    setShowSettingsModal(false); 
+    setShowAccountModal(true);
+  };
+
   const handleSaveChanges = async () => {
     console.log("handleSaveChanges triggered");
     if (!tempPetDetails.name.trim() || !tempPetDetails.type.trim() || !tempPetDetails.weight.trim()) {
@@ -461,46 +427,31 @@ export default function PetFeeder() {
         console.log("Validation failed: Missing fields");
         return;
     }
-
     const weightRegex = /^\d{1,3}(\.\d{1,2})?$/;
     if (!weightRegex.test(tempPetDetails.weight) || tempPetDetails.weight === '.') {
          Alert.alert("Invalid Weight", "Please enter a valid weight format (e.g., 10.5 or 15). Max 3 digits before decimal, 2 after.");
          console.log("Validation failed: Invalid weight format", tempPetDetails.weight);
          return;
     }
-
     const numericWeight = parseFloat(tempPetDetails.weight);
-
     if (isNaN(numericWeight)) {
         Alert.alert("Invalid Weight", "Please enter a valid number for weight.");
         console.log("Validation failed: Weight is NaN");
         return;
     }
-
     if (numericWeight <= 0) {
         Alert.alert("Invalid Weight", "Weight must be greater than zero.");
         console.log("Validation failed: Weight <= 0");
         return;
     }
-
     if (numericWeight >= 155) {
         console.log("Weight >= 155, showing confirmation alert.");
         Alert.alert(
             "Confirm Pet Weight",
             `Are you sure your pet weighs ${numericWeight} kg?\n\nFun Fact: The heaviest dog, Aicama Zorba, weighed 155.6 kg; and the heaviest domestic cat, Himmy, weighed 21.3 kg!`,
             [
-                {
-                    text: "No",
-                    style: "cancel",
-                    onPress: () => console.log("Weight confirmation cancelled by user."),
-                },
-                {
-                    text: "Yes",
-                    onPress: () => {
-                        console.log("Weight confirmed by user, proceeding to save...");
-                        proceedWithSave();
-                    }
-                },
+                { text: "No", style: "cancel", onPress: () => console.log("Weight confirmation cancelled by user."), },
+                { text: "Yes", onPress: () => { console.log("Weight confirmed by user, proceeding to save..."); proceedWithSave(); } },
             ],
             { cancelable: false }
         );
@@ -508,51 +459,37 @@ export default function PetFeeder() {
         console.log("Weight < 155, proceeding directly to save...");
         proceedWithSave();
     }
-
   };
 
-
   const proceedWithSave = async () => {
-    console.log("proceedWithSave called"); 
+    console.log("proceedWithSave called");
     if (!auth.currentUser) {
       Alert.alert("Error", "User session not found. Please log in again.");
-      // console.error("proceedWithSave error: User not found");
-      // await handleLogout(); // Example: Force logout if user becomes null unexpectedly
       return;
     }
     const currentUid = auth.currentUser.uid;
-
     setIsSaving(true);
     console.log("Setting isSaving to true");
-
     const userRef = ref(db, `users/${currentUid}`);
-
     const updates = {
       petName: tempPetDetails.name.trim(),
       petType: tempPetDetails.type,
       petWeight: tempPetDetails.weight,
     };
     console.log("Update payload:", updates);
-
     try {
       console.log("Attempting Firebase update...");
       await update(userRef, updates);
       console.log("Firebase update successful.");
-
       setPetName(updates.petName);
       setPetType(updates.petType);
       setPetWeight(updates.petWeight);
       const newRecWeight = calculateRecommendedWeight(updates.petWeight);
       setRecommendedWeight(newRecWeight);
       console.log("Local state updated.");
-
       setShowUpdatePetModal(false);
       console.log("Modal closed.");
-
-      setTimeout(() => {
-            Alert.alert("Success", "Pet details updated.");
-        }, 100);
-
+      setTimeout(() => { Alert.alert("Success", "Pet details updated."); }, 100);
     } catch (error) {
       console.error("Error updating pet details:", error);
       Alert.alert("Error", "Failed to update pet details. Please check your connection and try again.");
@@ -562,29 +499,12 @@ export default function PetFeeder() {
     }
   };
 
-
-
   const handleLogout = async () => {
     console.log("handleLogout: Initiated.");
 
-    console.log("handleLogout: Attempting to detach listeners...");
-    if (statusListenerUnsubscribe.current) {
-        console.log("handleLogout: Detaching status listener.");
-        try { statusListenerUnsubscribe.current(); } catch (e) { console.error("Logout detach status error:", e); }
-        statusListenerUnsubscribe.current = null;
-    } else { console.log("handleLogout: Status listener ref is null."); }
-
-    if (schedulesListenerUnsubscribe.current) {
-        console.log("handleLogout: Detaching schedules listener.");
-        try { schedulesListenerUnsubscribe.current(); } catch (e) { console.error("Logout detach schedules error:", e); }
-        schedulesListenerUnsubscribe.current = null;
-    } else { console.log("handleLogout: Schedules listener ref is null."); }
-
-    if (historyListenerUnsubscribe.current) {
-         console.log("handleLogout: Detaching history listener.");
-         try { historyListenerUnsubscribe.current(); } catch (e) { console.error("Logout detach history error:", e); }
-        historyListenerUnsubscribe.current = null;
-    } else { console.log("handleLogout: History listener ref is null."); }
+    if (statusListenerUnsubscribe.current) { try { statusListenerUnsubscribe.current(); } catch (e) { console.error("Logout detach status error:", e); } statusListenerUnsubscribe.current = null; }
+    if (schedulesListenerUnsubscribe.current) { try { schedulesListenerUnsubscribe.current(); } catch (e) { console.error("Logout detach schedules error:", e); } schedulesListenerUnsubscribe.current = null; }
+    if (historyListenerUnsubscribe.current) { try { historyListenerUnsubscribe.current(); } catch (e) { console.error("Logout detach history error:", e); } historyListenerUnsubscribe.current = null; }
 
     try {
         console.log("handleLogout: Calling signOut...");
@@ -596,70 +516,57 @@ export default function PetFeeder() {
     }
   };
 
-
-
-const handleDeleteAccount = () => {
-  const userToDelete = auth.currentUser;
-  if (!userToDelete) {
+  const handleDeleteAccount = () => {
+    const userToDelete = auth.currentUser;
+    if (!userToDelete) {
       Alert.alert("Error", "User not found. Cannot delete account.");
       return;
-  }
+    }
 
-  Alert.alert(
+    Alert.alert(
       "Confirm Delete Account",
       "Are you sure? This will permanently delete your account and all associated data. This action cannot be undone.",
       [
-          { text: "Cancel", style: "cancel" },
-          {
-              text: "Delete Permanently",
-              style: "destructive",
-              onPress: async () => {
-                  console.log(`handleDeleteAccount: Initiated for user ${userToDelete.uid}.`);
-                  setIsSaving(true);
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete Permanently",
+          style: "destructive",
+          onPress: async () => {
+            console.log(`handleDeleteAccount: Initiated for user ${userToDelete.uid}.`);
+            setIsSaving(true); 
 
-                  console.log("handleDeleteAccount: Attempting to detach listeners...");
-                  if (statusListenerUnsubscribe.current) {
-                      console.log("handleDeleteAccount: Detaching status listener.");
-                      try { statusListenerUnsubscribe.current(); } catch(e) { console.error("Delete detach status error:", e); }
-                      statusListenerUnsubscribe.current = null;
-                  } else { console.log("handleDeleteAccount: Status listener ref is null."); }
-                  if (schedulesListenerUnsubscribe.current) {
-                      console.log("handleDeleteAccount: Detaching schedules listener.");
-                      try { schedulesListenerUnsubscribe.current(); } catch (e) { console.error("Delete detach schedules error:", e); }
-                      schedulesListenerUnsubscribe.current = null;
-                  } else { console.log("handleDeleteAccount: Schedules listener ref is null."); }
-                  if (historyListenerUnsubscribe.current) {
-                      console.log("handleDeleteAccount: Detaching history listener.");
-                      try { historyListenerUnsubscribe.current(); } catch (e) { console.error("Delete detach history error:", e); }
-                      historyListenerUnsubscribe.current = null;
-                  } else { console.log("handleDeleteAccount: History listener ref is null."); }
+            console.log("handleDeleteAccount: Attempting to detach listeners...");
+            if (statusListenerUnsubscribe.current) { try { statusListenerUnsubscribe.current(); } catch(e) { console.error("Delete detach status error:", e); } statusListenerUnsubscribe.current = null; }
+            if (schedulesListenerUnsubscribe.current) { try { schedulesListenerUnsubscribe.current(); } catch (e) { console.error("Delete detach schedules error:", e); } schedulesListenerUnsubscribe.current = null; }
+            if (historyListenerUnsubscribe.current) { try { historyListenerUnsubscribe.current(); } catch (e) { console.error("Delete detach history error:", e); } historyListenerUnsubscribe.current = null; }
 
-                  try {
-                      // Delete Realtime Database data
-                      console.log("handleDeleteAccount: Deleting database data...");
-                      const userRef = ref(db, `users/${userToDelete.uid}`);
-                      await remove(userRef);
-                      console.log("handleDeleteAccount: Database data deleted successfully.");
+            try {
+              console.log("handleDeleteAccount: Deleting database data...");
+              const userRef = ref(db, `users/${userToDelete.uid}`);
+              await remove(userRef);
+              console.log("handleDeleteAccount: Database data deleted successfully.");
 
-                      // Delete Firebase Auth user
-                      console.log("handleDeleteAccount: Deleting auth user...");
-                      await deleteUser(userToDelete);
-                      console.log("handleDeleteAccount: Auth user deleted successfully.");
+              console.log("handleDeleteAccount: Deleting auth user...");
+              await deleteUser(userToDelete);
+              console.log("handleDeleteAccount: Auth user deleted successfully.");
 
-                  } catch (error) {
-                      console.error("handleDeleteAccount: Error during deletion process:", error);
-                      let errorMessage = `Failed to delete account. Please try again.`;
-                       if (error.code === 'auth/requires-recent-login') {
-                          errorMessage = 'This operation requires a recent login. Please log out and log back in to delete your account.';
-                      } else if (error.message) {
-                          errorMessage = `Failed to delete account: ${error.message}`;
-                      }
-                      Alert.alert("Deletion Error", errorMessage);
-                      setIsSaving(false); 
-                  }
-              },
+
+            } catch (error) {
+              // console.error("handleDeleteAccount: Error during deletion process:", error);
+              let errorMessage = `Failed to delete account. Please try again.`;
+               if (error.code === 'auth/requires-recent-login') {
+                  errorMessage = 'This operation requires a recent login. Please log out and log back in to delete your account.';
+              } else if (error.message) {
+                  errorMessage = `Failed to delete account: ${error.message}`;
+              }
+              Alert.alert("Deletion Error", errorMessage);
+            } finally {
+                setIsSaving(false);
+            }
           },
-      ]
+        },
+      ],
+      { cancelable: false }
     );
   };
 
@@ -667,9 +574,7 @@ const handleDeleteAccount = () => {
     if (!timestamp || isNaN(timestamp)) return "Invalid Date";
     try {
         const date = new Date(timestamp);
-         if (isNaN(date.getTime())) {
-             return "Invalid Date";
-         }
+         if (isNaN(date.getTime())) { return "Invalid Date"; }
         const dateString = date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
         const timeString = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: true });
         return `${dateString}, ${timeString}`;
@@ -677,12 +582,7 @@ const handleDeleteAccount = () => {
         console.error("Error formatting timestamp:", e, "Timestamp:", timestamp);
         return "Invalid Date";
     }
-};
-
-
-
-
-
+  };
 
   if (isLoading) {
     return (
@@ -741,12 +641,6 @@ const handleDeleteAccount = () => {
           style={styles.input}
           placeholder={`Enter feeding weight (g) e.g. ${recommendedWeight !== 'N/A' ? recommendedWeight : '100'}`}
           placeholderTextColor="#888"
-
-          // keyboardType="numeric"
-          // value={manualWeight}
-          // onChangeText={setManualWeight}
-
-          // remove if want to exceed 500g and apply the commented-out code above
           keyboardType="number-pad"
           value={manualWeight}
           onChangeText={handleManualWeightChange}
@@ -786,113 +680,94 @@ const handleDeleteAccount = () => {
              <Text style={styles.noSchedulesText}>No schedules added yet.</Text>
         ) : (
             <FlatList
-            data={schedules.slice().sort((a, b) => {
-              const timeToMinutes = (timeStr) => {
-                  if (!timeStr || typeof timeStr !== 'string') return 0;
-                  try {
-                      const lowerTime = timeStr.toLowerCase().trim();
-                      const isPM = lowerTime.includes('pm');
-                      const isAM = lowerTime.includes('am');
-                      const timePart = lowerTime.replace('am', '').replace('pm', '').trim();
-                      let [hours, minutes] = timePart.split(':').map(Number);
-          
-                      if (isNaN(hours) || isNaN(minutes)) return 0; 
+              data={schedules.slice().sort((a, b) => {
+                const timeToMinutes = (timeStr) => {
+                    if (!timeStr || typeof timeStr !== 'string') return 0;
+                    try {
+                        const lowerTime = timeStr.toLowerCase().trim();
+                        const isPM = lowerTime.includes('pm');
+                        const isAM = lowerTime.includes('am');
+                        const timePart = lowerTime.replace('am', '').replace('pm', '').trim();
+                        let [hours, minutes] = timePart.split(':').map(Number);
 
-                      if (isPM && hours !== 12) {
-                          hours += 12;
-                      } else if (isAM && hours === 12) {
-                          hours = 0;
-                      }
-                      if (hours === 24) hours = 0;
-          
-                      return hours * 60 + minutes;
-                  } catch (e) {
-                      console.error("Error parsing schedule time for sort:", timeStr, e);
-                      return 0;
-                  }
-              };
-          
-              const timeA = timeToMinutes(a.time);
-              const timeB = timeToMinutes(b.time);
-              return timeA - timeB; 
-            })}
-          
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                <View style={styles.scheduleItem}>
-                    <View style={styles.scheduleInfo}>
-                        <Text style={styles.scheduleTime}>{item.time}</Text>
-                        <Text style={styles.scheduleWeight}>{item.weight}g</Text>
-                    </View>
-                    <View style={styles.scheduleControls}>
-                        <Switch
-                            trackColor={{ false: "#ccc", true: "#B185DB" }}
-                            thumbColor={item.isOn ? "#A06CD5" : "#f4f3f4"}
-                            ios_backgroundColor="#3e3e3e"
-                            onValueChange={() => toggleSchedule(item.id)}
-                            value={item.isOn}
-                        />
-                        <TouchableOpacity onPress={() => deleteSchedule(item.id)} style={styles.deleteButton}>
-                            <Icon name="trash-outline" size={22} color="#dc3545" />
-                        </TouchableOpacity>
-                    </View>
-                </View>
-                )}
-                scrollEnabled={false}
+                        if (isNaN(hours) || isNaN(minutes)) return 0;
+
+                        if (isPM && hours !== 12) { hours += 12; }
+                        else if (isAM && hours === 12) { hours = 0; }
+                        if (hours === 24) hours = 0;
+
+                        return hours * 60 + minutes;
+                    } catch (e) {
+                        console.error("Error parsing schedule time for sort:", timeStr, e);
+                        return 0;
+                    }
+                };
+                const timeA = timeToMinutes(a.time);
+                const timeB = timeToMinutes(b.time);
+                return timeA - timeB;
+              })}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+              <View style={styles.scheduleItem}>
+                  <View style={styles.scheduleInfo}>
+                      <Text style={styles.scheduleTime}>{item.time}</Text>
+                      <Text style={styles.scheduleWeight}>{item.weight}g</Text>
+                  </View>
+                  <View style={styles.scheduleControls}>
+                      <Switch
+                          trackColor={{ false: "#ccc", true: "#B185DB" }}
+                          thumbColor={item.isOn ? "#A06CD5" : "#f4f3f4"}
+                          ios_backgroundColor="#3e3e3e"
+                          onValueChange={() => toggleSchedule(item.id)}
+                          value={item.isOn}
+                          disabled={isSaving}
+                      />
+                      <TouchableOpacity onPress={() => deleteSchedule(item.id)} style={styles.deleteButton} disabled={isSaving}>
+                          <Icon name="trash-outline" size={22} color={isSaving ? "#aaa" : "#dc3545"} />
+                      </TouchableOpacity>
+                  </View>
+              </View>
+              )}
+              scrollEnabled={false}
             />
         )}
       </View>
 
-    <View style={styles.sectionContainer}>
-      <Text style={styles.sectionTitle}>Feeding History (Last 20)</Text>
+      {/* Feeding History Section */}
+      <View style={styles.sectionContainer}>
+        <Text style={styles.sectionTitle}>Feeding History (Last 20)</Text>
+        {isLoadingHistory && (
+            <ActivityIndicator size="small" color="#A06CD5" style={{ marginVertical: 15 }} />
+        )}
+        {!isLoadingHistory && feedingHistory.length === 0 && (
+            <Text style={styles.noHistoryText}>No feeding history recorded yet.</Text>
+        )}
+        {!isLoadingHistory && feedingHistory.length > 0 && (
+            <FlatList
+                data={feedingHistory}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                    <View style={styles.historyItem}>
+                        <View style={styles.historyInfo}>
+                            <Text style={styles.historyTimestamp}>{formatHistoryTimestamp(item.timestamp)}</Text>
+                            <Text style={styles.historyDetails}>Amount: {item.amount || 'N/A'}g</Text>
+                        </View>
+                        <Text style={[ styles.historyType, item.type === 'manual' ? styles.historyTypeManual : styles.historyTypeScheduled ]}>
+                            {item.type === 'manual' ? 'Manual' : 'Scheduled'}
+                        </Text>
+                    </View>
+                )}
+                scrollEnabled={false}
+                ItemSeparatorComponent={() => <View style={styles.historySeparator} />}
+            />
+        )}
+      </View>
 
-      {isLoadingHistory && (
-          <ActivityIndicator size="small" color="#A06CD5" style={{ marginVertical: 15 }} />
-      )}
-
-      {!isLoadingHistory && feedingHistory.length === 0 && (
-          <Text style={styles.noHistoryText}>No feeding history recorded yet.</Text>
-      )}
-
-      {!isLoadingHistory && feedingHistory.length > 0 && (
-          <FlatList
-              data={feedingHistory}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                  <View style={styles.historyItem}>
-                      <View style={styles.historyInfo}>
-                          <Text style={styles.historyTimestamp}>
-                              {formatHistoryTimestamp(item.timestamp)}
-                          </Text>
-                          <Text style={styles.historyDetails}>
-                              Amount: {item.amount || 'N/A'}g
-                          </Text>
-                      </View>
-                      <Text style={[
-                          styles.historyType,
-                          item.type === 'manual' ? styles.historyTypeManual : styles.historyTypeScheduled
-                      ]}>
-                          {item.type === 'manual' ? 'Manual' : 'Scheduled'}
-                      </Text>
-                  </View>
-              )}
-              scrollEnabled={false}
-              ItemSeparatorComponent={() => <View style={styles.historySeparator} />}
-          />
-      )}
-    </View>
-
-      {/* DateTime Picker Modal */}
       {showPicker && (
         <DateTimePicker
-          value={selectedTime}
-          mode="time"
-          is24Hour={false}
-          display="spinner"
-          onChange={onTimeSelected}
+          value={selectedTime} mode="time" is24Hour={false} display="spinner" onChange={onTimeSelected}
         />
       )}
-
 
       {/* Feeding Guide Modal */}
       <Modal visible={showFeedingGuideModal} transparent={true} animationType="fade" onRequestClose={() => setShowFeedingGuideModal(false)}>
@@ -906,17 +781,14 @@ const handleDeleteAccount = () => {
             <Text style={styles.modalText}>- 30-40kg: ~400g per meal</Text>
             <Text style={styles.modalText}>- 40kg+: ~500g per meal</Text>
             <Text style={styles.modalNote}>Note: These are general guidelines. Consult your vet for specific recommendations.</Text>
-            <TouchableOpacity
-              style={[styles.modalButton, styles.closeButton]}
-              onPress={() => setShowFeedingGuideModal(false)}
-            >
+            <TouchableOpacity style={[styles.modalButton, styles.closeButton]} onPress={() => setShowFeedingGuideModal(false)}>
               <Text style={styles.buttonText}>Close</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Settings Modal */}
+      {/* --- Settings Modal (Main) --- */}
       <Modal visible={showSettingsModal} transparent={true} animationType="fade" onRequestClose={() => setShowSettingsModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -924,8 +796,7 @@ const handleDeleteAccount = () => {
 
             {/* --- Pet Section --- */}
             <View style={styles.modalSection}>
-              {/* <Text style={styles.modalSectionHeader}>Pet</Text> */}
-              <TouchableOpacity style={styles.modalButton} onPress={openUpdateModal}>
+              <TouchableOpacity style={styles.modalButton} onPress={openUpdateModal} disabled={isSaving}>
                 <View style={styles.modalButtonRow}>
                   <Icon name="paw-outline" size={22} style={styles.modalButtonIcon} />
                   <Text style={styles.modalButtonText}>Update Pet Details</Text>
@@ -933,30 +804,34 @@ const handleDeleteAccount = () => {
               </TouchableOpacity>
             </View>
 
-             {/* --- Account Section --- */}
+            {/* --- Account Section Button --- */}
             <View style={styles.modalSection}>
-              {/* <Text style={styles.modalSectionHeader}>Account</Text> */}
-              <TouchableOpacity style={styles.modalButton} onPress={handleLogout}>
+              <TouchableOpacity style={styles.modalButton} onPress={openAccountModal} disabled={isSaving}>
+                 <View style={styles.modalButtonRow}>
+                  <Icon name="person-circle-outline" size={22} style={styles.modalButtonIcon} />
+                  <Text style={styles.modalButtonText}>Account Settings</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            {/* --- Logout Section --- */}
+            <View style={styles.modalSection}>
+              <TouchableOpacity style={styles.modalButton} onPress={handleLogout} disabled={isSaving}>
                  <View style={styles.modalButtonRow}>
                   <Icon name="log-out-outline" size={22} style={styles.modalButtonIcon} />
                   <Text style={styles.modalButtonText}>Logout</Text>
                 </View>
               </TouchableOpacity>
-
-              <TouchableOpacity style={[styles.modalButton, styles.modalDeleteButton]} onPress={handleDeleteAccount}>
-                 <View style={styles.modalButtonRow}>
-                  <Icon name="trash-outline" size={22} style={[styles.modalButtonIcon, styles.modalDeleteButtonText]} />
-                  <Text style={[styles.modalButtonText, styles.modalDeleteButtonText]}>Delete Account</Text>
-                </View>
-              </TouchableOpacity>
             </View>
 
-             {/* Loading Indicator */}
-             {isSaving && <ActivityIndicator size="small" color="#A06CD5" style={{ marginVertical: 10 }}/>}
+            {/* Loading Indicator (for pet details save, delete account) */}
+            {isSaving && <ActivityIndicator size="small" color="#A06CD5" style={{ marginVertical: 10 }}/>}
 
+            {/* Close Button */}
             <TouchableOpacity
               style={[styles.modalButton, styles.closeButton]}
               onPress={() => setShowSettingsModal(false)}
+              disabled={isSaving}
             >
               <View style={styles.modalButtonRow}>
                   <Icon name="close-circle-outline" size={22} style={styles.modalButtonIcon} />
@@ -967,73 +842,95 @@ const handleDeleteAccount = () => {
         </View>
       </Modal>
 
+      {/* --- Account Settings Modal --- */}
+      <Modal visible={showAccountModal} transparent={true} animationType="fade" onRequestClose={() => !isSaving && setShowAccountModal(false)}>
+        <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>Account Settings</Text>
+
+              {/* --- Display Email Section --- */}
+                <View style={styles.modalSection}>
+                    <Text style={styles.modalSectionHeader}>Account Email</Text>
+                    <Text style={styles.infoText}>
+                        {user ? user.email : 'N/A'}
+                    </Text>
+                    {user && !user.emailVerified && ( 
+                        <Text style={[styles.infoText, { color: '#ffc107', marginTop: 5, fontSize: 14 }]}>
+                            (Not Verified)
+                        </Text>
+                    )}
+                </View>
+
+                {/* --- Delete Account Section --- */}
+                <View style={styles.modalSection}>
+                    <Text style={styles.modalSectionHeader}>Delete Account</Text>
+                    <TouchableOpacity
+                        style={[styles.modalButton, styles.modalDeleteButton, (isSaving) && styles.buttonDisabled]}
+                        onPress={handleDeleteAccount}
+                        disabled={isSaving }
+                    >
+                        <View style={styles.modalButtonRowCenter}>
+                            <Icon name="trash-outline" size={20} style={[styles.modalButtonIcon, styles.modalDeleteButtonText, { marginRight: 5 }]} />
+                            <Text style={[styles.modalButtonText, styles.modalDeleteButtonText]}>Delete Account Permanently</Text>
+                        </View>
+                    </TouchableOpacity>
+                    <Text style={styles.modalNoteSmall}>This action is irreversible.</Text>
+                </View>
+
+                {/* Loading Indicator (for delete account) */}
+                {isSaving && <ActivityIndicator size="small" color="#A06CD5" style={{ marginVertical: 10 }}/>}
+
+                {/* Close Button */}
+                <TouchableOpacity
+                    style={[styles.modalButton, styles.closeButton]}
+                    onPress={() => setShowAccountModal(false)}
+                    disabled={isSaving}
+                >
+                    <View style={styles.modalButtonRowCenter}>
+                        <Icon name="close-circle-outline" size={22} style={[styles.modalButtonIcon, { color: '#fff' }]} />
+                        <Text style={styles.buttonText}>Cancel</Text>
+                    </View>
+                </TouchableOpacity>
+            </View>
+        </View>
+      </Modal>
+
        {/* Update Pet Details Modal */}
-       <Modal visible={showUpdatePetModal} transparent={true} animationType="fade" onRequestClose={() => setShowUpdatePetModal(false)}>
+       <Modal visible={showUpdatePetModal} transparent={true} animationType="fade" onRequestClose={() => !isSaving && setShowUpdatePetModal(false)}>
          <View style={styles.modalOverlay}>
            <View style={styles.modalContent}>
              <Text style={styles.modalTitle}>Update Pet Details</Text>
              <TextInput
-                style={styles.modalInput}
-                placeholder="Pet Name"
-                value={tempPetDetails.name}
-                onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, name: text })}
-                autoCapitalize="words" 
-                maxLength={20}
+                style={styles.modalInput} placeholder="Pet Name" value={tempPetDetails.name} onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, name: text })}
+                autoCapitalize="words" maxLength={20} editable={!isSaving}
             />
             <Text style={styles.modalLabel}>Pet Type:</Text>
             <View style={styles.petTypeSelectionContainer}>
                 <TouchableOpacity
-                    style={[
-                        styles.petTypeButton,
-                        tempPetDetails.type === 'Dog' && styles.petTypeButtonSelected
-                    ]}
-                    onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Dog' })}
-                    disabled={isSaving}
+                    style={[ styles.petTypeButton, tempPetDetails.type === 'Dog' && styles.petTypeButtonSelected ]}
+                    onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Dog' })} disabled={isSaving}
                 >
-                    <Text style={[
-                        styles.petTypeButtonText,
-                        tempPetDetails.type === 'Dog' && styles.petTypeButtonTextSelected
-                    ]}>Dog</Text>
+                    <Text style={[ styles.petTypeButtonText, tempPetDetails.type === 'Dog' && styles.petTypeButtonTextSelected ]}>Dog</Text>
                 </TouchableOpacity>
-
                 <TouchableOpacity
-                    style={[
-                        styles.petTypeButton,
-                        tempPetDetails.type === 'Cat' && styles.petTypeButtonSelected
-                    ]}
-                    onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Cat' })}
-                    disabled={isSaving}
+                    style={[ styles.petTypeButton, tempPetDetails.type === 'Cat' && styles.petTypeButtonSelected ]}
+                    onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Cat' })} disabled={isSaving}
                 >
-                     <Text style={[
-                        styles.petTypeButtonText,
-                        tempPetDetails.type === 'Cat' && styles.petTypeButtonTextSelected
-                    ]}>Cat</Text>
+                     <Text style={[ styles.petTypeButtonText, tempPetDetails.type === 'Cat' && styles.petTypeButtonTextSelected ]}>Cat</Text>
                 </TouchableOpacity>
             </View>
             <TextInput
-                style={styles.modalInput}
-                placeholder="Pet Weight (kg)"
-
-                // keyboardType="numeric"
-                // value={tempPetDetails.weight}
-                // onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, weight: text })}
-                keyboardType="decimal-pad" // Allow decimal input
-                value={tempPetDetails.weight}
-                onChangeText={handleTempWeightChange}
-
+                style={styles.modalInput} placeholder="Pet Weight (kg)" keyboardType="decimal-pad" value={tempPetDetails.weight} onChangeText={handleTempWeightChange} editable={!isSaving}
              />
-
              <TouchableOpacity
                 style={[styles.modalButton, styles.saveButton, isSaving && styles.buttonDisabled]}
-                onPress={handleSaveChanges}
-                disabled={isSaving}
+                onPress={handleSaveChanges} disabled={isSaving}
               >
                 {isSaving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.buttonText}>Save Changes</Text>}
              </TouchableOpacity>
              <TouchableOpacity
                 style={[styles.modalButton, styles.closeButton]}
-                onPress={() => setShowUpdatePetModal(false)}
-                disabled={isSaving}
+                onPress={() => setShowUpdatePetModal(false)} disabled={isSaving}
               >
                <Text style={styles.buttonText}>Cancel</Text>
              </TouchableOpacity>
@@ -1044,6 +941,7 @@ const handleDeleteAccount = () => {
     </ScrollView>
   );
 }
+
 
 const styles = StyleSheet.create({
   scrollView: {
@@ -1067,20 +965,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingVertical: 20,
-    marginTop: 30,
+    marginTop: 30, 
     position: 'relative',
   },
   headerTitle: {
     fontSize: 22,
     fontWeight: "bold",
     color: "#333",
-    fontFamily: "Nunito",
+    // fontFamily: "Nunito", 
   },
   settingsIcon: {
     position: "absolute",
     right: 15,
     top: '50%',
-    transform: [{ translateY: -14 }]
+    transform: [{ translateY: -14 }], 
+    padding: 5, 
   },
   sectionContainer: {
     width: '100%',
@@ -1107,6 +1006,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 5,
     color: "#444",
+    lineHeight: 22, 
   },
   statusRow: {
     flexDirection: 'row',
@@ -1122,6 +1022,7 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#dc3545',
     fontWeight: 'bold',
+    marginTop: 5,
   },
   feedingRow: {
     flexDirection: 'row',
@@ -1132,12 +1033,12 @@ const styles = StyleSheet.create({
   guideButton: {
     paddingHorizontal: 10,
     paddingVertical: 5,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: '#e9ecef', // Lighter gray
     borderRadius: 5,
   },
   guideButtonText: {
     fontSize: 14,
-    color: '#555',
+    color: '#495057', // darker gray text
     fontWeight: 'bold',
   },
   input: {
@@ -1149,6 +1050,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     marginBottom: 12,
     fontSize: 16,
+    color: '#333', 
   },
   actionButton: {
     paddingVertical: 12,
@@ -1162,17 +1064,16 @@ const styles = StyleSheet.create({
      backgroundColor: "#28a745",
   },
   addTimeButton: {
-      backgroundColor: "#A06CD5",
+      backgroundColor: "#A06CD5", 
   },
   buttonText: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "bold",
-    lineHeight: 18,
     textAlignVertical: 'center',
   },
   buttonDisabled: {
-    backgroundColor: "#ccc",
+    backgroundColor: "#ced4da", 
   },
   scheduleItem: {
     flexDirection: "row",
@@ -1203,14 +1104,16 @@ const styles = StyleSheet.create({
    },
    deleteButton: {
      marginLeft: 15,
-     padding: 5,
+     padding: 5, 
    },
    noSchedulesText: {
        textAlign: 'center',
        color: '#888',
        marginTop: 15,
        fontSize: 15,
+       fontStyle: 'italic',
    },
+
 
    modalOverlay: {
     flex: 1,
@@ -1220,9 +1123,9 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     width: "90%",
-    maxWidth: 380,
+    maxWidth: 400,
     paddingVertical: 20,
-    paddingHorizontal: 15,
+    paddingHorizontal: 20, 
     backgroundColor: "#fff",
     borderRadius: 12,
     alignItems: "center",
@@ -1235,113 +1138,128 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: "bold",
-    marginBottom: 20, 
+    marginBottom: 20,
     color: '#333',
     textAlign: 'center',
   },
-
   modalSection: {
     width: '100%',
     marginBottom: 15,
-    borderTopWidth: 1, 
+    borderTopWidth: 1,
     borderTopColor: '#eee',
-    paddingTop: 15, 
+    paddingTop: 15,
   },
-
-  modalDeleteButton: {
-    backgroundColor: '#ffebee',
-    borderColor: '#dc3545',
-    borderWidth: 1,
+  modalSectionHeader: { 
+      fontSize: 16,
+      fontWeight: 'bold',
+      color: '#555',
+      marginBottom: 10,
+      alignSelf: 'flex-start',
   },
-
-   modalText: {
+  modalText: { 
      fontSize: 15,
      marginBottom: 5,
      color: '#444',
      textAlign: 'left',
      width: '100%',
    },
-   modalNote: {
+   modalNote: { 
      fontSize: 13,
      color: '#777',
      marginTop: 10,
      fontStyle: 'italic',
      textAlign: 'center',
    },
-
-
-   modalButton: {
-    width: '100%',
-    paddingVertical: 12, 
-    // backgroundColor: '#f0f0f0',
-    borderRadius: 8,
-    marginTop: 8, 
+   modalNoteSmall: { 
+      fontSize: 12,
+      color: '#dc3545', 
+      marginTop: 5,
+      textAlign: 'center',
+      width: '100%',
   },
-  modalButtonRow: {
+   modalButton: { 
+    width: '100%',
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginTop: 8,
+    borderWidth: 1, 
+    borderColor: 'transparent', 
+   },
+   modalButtonRow: { 
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-  },
-  modalButtonIcon: {
-    marginRight: 8,
+    paddingHorizontal: 15, 
+    justifyContent: 'flex-start', 
+   },
+   modalButtonRowCenter: { 
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center', 
+   },
+   modalButtonIcon: {
+    marginRight: 10, 
     color: '#555',
-  },
-  modalButtonText: {
+   },
+   modalButtonText: {
     color: '#333',
     fontSize: 16,
     fontWeight: '500',
-  },
+   },
 
-  modalDeleteButtonText: {
+   modalDeleteButton: { 
+    backgroundColor: '#f8d7da', 
+    borderColor: '#dc3545', 
+   },
+   modalDeleteButtonText: { 
     color: '#dc3545',
     fontWeight: 'bold',
-  },
-
-   deleteAccountButton: {
-      backgroundColor: '#dc3545',
    },
-   saveButton: {
-       backgroundColor: '#007bff',
-       alignItems: 'center',
+   saveButton: { 
+       backgroundColor: '#007bff', 
+       borderColor: '#007bff',
+       alignItems: 'center', 
    },
-   closeButton: {
-     backgroundColor: "#adb5bd",
+   closeButton: { 
+     backgroundColor: "#6c757d", 
+     borderColor: '#6c757d',
      marginTop: 15,
-     alignItems: 'center',
+     alignItems: 'center', 
    },
-   modalInput: {
+   modalInput: { 
      width: '100%',
-     padding: 10,
+     padding: 12,
      borderWidth: 1,
      borderColor: '#ccc',
-     borderRadius: 5,
+     borderRadius: 8,
      marginBottom: 10,
      fontSize: 16,
+     backgroundColor: '#fff', 
    },
-   modalLabel: {
+   modalLabel: { 
     fontSize: 16,
     fontWeight: 'bold',
     color: '#555',
     marginBottom: 5,
     alignSelf: 'flex-start',
-    marginLeft: '5%',
+    // marginLeft: '5%', 
   },
+
   petTypeSelectionContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '90%',
+    justifyContent: 'space-evenly', 
+    width: '100%',
     marginBottom: 15,
   },
   petTypeButton: {
     paddingVertical: 10,
-    paddingHorizontal: 25,
+    paddingHorizontal: 30, 
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#A06CD5',
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f8f9fa', 
   },
   petTypeButtonSelected: {
-    backgroundColor: '#B185DB',
+    backgroundColor: '#B185DB', 
     borderColor: '#A06CD5',
   },
   petTypeButtonText: {
@@ -1365,9 +1283,6 @@ const styles = StyleSheet.create({
       justifyContent: 'space-between',
       alignItems: 'center',
       paddingVertical: 10,
-      // backgroundColor: '#f9f9f9',
-      // borderRadius: 5,
-      // marginBottom: 5,
   },
   historyInfo: {
       flex: 1,
@@ -1388,20 +1303,27 @@ const styles = StyleSheet.create({
       paddingHorizontal: 8,
       paddingVertical: 3,
       borderRadius: 4,
-      overflow: 'hidden',
+      overflow: 'hidden', 
+      textAlign: 'center', 
+      minWidth: 70,
   },
   historyTypeManual: {
-      backgroundColor: '#e2f0d9',
-      color: '#4CAF50',
+      backgroundColor: '#d1e7dd', // lighter green
+      color: '#0f5132', // darker green text
+      // borderColor: '#badbcc', // border
+      // borderWidth: 1,
   },
   historyTypeScheduled: {
-      backgroundColor: '#e0e8f0',
-      color: '#007bff',
+      backgroundColor: '#cfe2ff', // lighter blue
+      color: '#052c65', // darker blue text
+      // borderColor: '#b6d4fe', 
+      // borderWidth: 1,
   },
   historySeparator: {
       height: 1,
       backgroundColor: '#eee',
       width: '100%',
+      marginVertical: 2, 
   },
 
 });
