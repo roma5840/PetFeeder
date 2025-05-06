@@ -12,3 +12,9 @@
    ```bash
     npx expo start
    ```
+
+## Current Version
+
+v6 - Bug fixes on routing
+
+(Note: Current readme is temporary)
