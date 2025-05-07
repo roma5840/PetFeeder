@@ -809,7 +809,7 @@ export default function PetFeeder() {
         </TouchableOpacity>
 
         {/* Loading indicator for saves */}
-        {isSaving && <ActivityIndicator size="small" color="#A06CD5" style={{ marginVertical: 5 }}/>}
+        {/* {isSaving && <ActivityIndicator size="small" color="#A06CD5" style={{ marginVertical: 5 }}/>} */}
 
         {schedules.length === 0 && !isLoading ? (
              <Text style={styles.noSchedulesText}>No schedules added yet.</Text>
