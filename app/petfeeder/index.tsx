@@ -1,14 +1,14 @@
 // UPDATED PETFEEDER UI
 // Changes made by me (Ryan):
 
-// v5:
-// added account settings (shows email and delete account button)
-
 // v7:
 // added change password with password validation
 
 // v8:
 // PETFEEDER UI OVERHAUL
+
+// v8.1:
+// add password checklist in change password & show eye button
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
@@ -84,6 +84,11 @@ export default function PetFeeder() {
   const [lastFeedInfo, setLastFeedInfo] = useState("N/A");
   const [foodLevelStatus, setFoodLevelStatus] = useState("Unknown");
   const [feederError, setFeederError] = useState("None");
+
+  const [showPasswordInfoModal, setShowPasswordInfoModal] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPasswordInput, setShowNewPasswordInput] = useState(false);
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
 
   const [feedingHistory, setFeedingHistory] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
@@ -1095,63 +1100,123 @@ export default function PetFeeder() {
             <Icon name="lock-closed-outline" size={30} color={styles.themePalette.primary.color} style={{marginBottom: 10}} />
             <Text style={styles.modalTitle}>Change Password</Text>
 
-            <TextInput
-                style={styles.modalInput}
-                placeholder="Current Password"
-                placeholderTextColor={styles.themePalette.textMuted.color}
-                value={currentPassword}
-                onChangeText={setCurrentPassword}
-                secureTextEntry={true}
-                autoComplete="password"
-                editable={!isChangingPassword}
-            />
-            <TextInput
-                style={styles.modalInput}
-                placeholder="New Password"
-                placeholderTextColor={styles.themePalette.textMuted.color}
-                value={newPassword}
-                onChangeText={(text) => {
-                  setNewPassword(text);
-                  validateNewPassword(text, confirmNewPassword);
-              }}
-                secureTextEntry={true}
-                autoComplete="new-password"
-                editable={!isChangingPassword}
-            />
-            <TextInput
-                style={styles.modalInput}
-                placeholder="Confirm New Password"
-                placeholderTextColor={styles.themePalette.textMuted.color}
-                value={confirmNewPassword}
-                onChangeText={(text) => {
-                  setConfirmNewPassword(text);
-                  validateNewPassword(newPassword, text);
-              }}
-                secureTextEntry={true}
-                autoComplete="new-password"
-                editable={!isChangingPassword}
-            />
+            <View style={styles.passwordInputContainer}>
+              <TextInput
+                  style={styles.passwordInputText}
+                  placeholder="Current Password"
+                  placeholderTextColor={styles.themePalette.textMuted.color}
+                  value={currentPassword}
+                  onChangeText={setCurrentPassword}
+                  secureTextEntry={!showCurrentPassword}
+                  autoComplete="password"
+                  editable={!isChangingPassword}
+              />
+              <TouchableOpacity
+                style={styles.passwordToggleIcon}
+                onPress={() => setShowCurrentPassword(!showCurrentPassword)}
+              >
+                <Icon
+                  name={showCurrentPassword ? "eye-outline" : "eye-off-outline"}
+                  size={22}
+                  color={themeColors.textMuted}
+                />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.passwordInputContainer}>
+              <TextInput
+                  style={styles.passwordInputText}
+                  placeholder="New Password"
+                  placeholderTextColor={styles.themePalette.textMuted.color}
+                  value={newPassword}
+                  onChangeText={(text) => {
+                    setNewPassword(text);
+                    validateNewPassword(text, confirmNewPassword);
+                  }}
+                  secureTextEntry={!showNewPasswordInput}
+                  autoComplete="new-password"
+                  editable={!isChangingPassword}
+              />
+              <TouchableOpacity
+                style={styles.passwordToggleIcon}
+                onPress={() => setShowNewPasswordInput(!showNewPasswordInput)}
+              >
+                <Icon
+                  name={showNewPasswordInput ? "eye-outline" : "eye-off-outline"}
+                  size={22}
+                  color={themeColors.textMuted}
+                />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.passwordInputContainer}>
+              <TextInput
+                  style={styles.passwordInputText}
+                  placeholder="Confirm New Password"
+                  placeholderTextColor={styles.themePalette.textMuted.color}
+                  value={confirmNewPassword}
+                  onChangeText={(text) => {
+                    setConfirmNewPassword(text);
+                    validateNewPassword(newPassword, text);
+                  }}
+                  secureTextEntry={!showConfirmNewPassword}
+                  autoComplete="new-password"
+                  editable={!isChangingPassword}
+              />
+              <TouchableOpacity
+                style={styles.passwordToggleIcon}
+                onPress={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
+              >
+                <Icon
+                  name={showConfirmNewPassword ? "eye-outline" : "eye-off-outline"}
+                  size={22}
+                  color={themeColors.textMuted}
+                />
+              </TouchableOpacity>
+            </View>
 
-             {(newPassword.length > 0 || confirmNewPassword.length > 0) && (
-              <View style={styles.passwordChecklistContainer}>
-                <Text style={[styles.passwordChecklistItem, newPassHasMinLength ? styles.validCheck : styles.invalidCheck]}>
-                  <Icon name={newPassHasMinLength ? "checkmark-circle" : "close-circle"} size={16} /> Min 6 chars
-                </Text>
-                <Text style={[styles.passwordChecklistItem, newPassHasUpperCase ? styles.validCheck : styles.invalidCheck]}>
-                  <Icon name={newPassHasUpperCase ? "checkmark-circle" : "close-circle"} size={16} /> Uppercase
-                </Text>
-                <Text style={[styles.passwordChecklistItem, newPassHasLowerCase ? styles.validCheck : styles.invalidCheck]}>
-                  <Icon name={newPassHasLowerCase ? "checkmark-circle" : "close-circle"} size={16} /> Lowercase
-                </Text>
-                <Text style={[styles.passwordChecklistItem, newPassHasNumber ? styles.validCheck : styles.invalidCheck]}>
-                  <Icon name={newPassHasNumber ? "checkmark-circle" : "close-circle"} size={16} /> Number
-                </Text>
-                <Text style={[styles.passwordChecklistItem, newPassHasSpecialChar ? styles.validCheck : styles.invalidCheck]}>
-                  <Icon name={newPassHasSpecialChar ? "checkmark-circle" : "close-circle"} size={16} /> Special
-                </Text>
-                <Text style={[styles.passwordChecklistItem, newPasswordsMatch ? styles.validCheck : styles.invalidCheck]}>
-                  <Icon name={newPasswordsMatch ? "checkmark-circle" : "close-circle"} size={16} /> Match
-                </Text>
+            {/* PASSWORD CHECKLIST */}
+            { (newPassword.length > 0 || confirmNewPassword.length > 0) && (
+              <View style={styles.passwordChecklistRow}>
+                <View style={styles.passwordMinimalChecklist}>
+                  <Icon
+                    name={newPassHasMinLength ? "checkmark-circle" : "text-outline"}
+                    size={18}
+                    color={newPassHasMinLength ? themeColors.success : themeColors.danger}
+                    style={styles.checklistItemIcon}
+                  />
+                  <Icon
+                    name={newPassHasUpperCase ? "checkmark-circle" : "arrow-up-circle-outline"}
+                    size={18}
+                    color={newPassHasUpperCase ? themeColors.success : themeColors.danger}
+                    style={styles.checklistItemIcon}
+                  />
+                  <Icon
+                    name={newPassHasLowerCase ? "checkmark-circle" : "arrow-down-circle-outline"}
+                    size={18}
+                    color={newPassHasLowerCase ? themeColors.success : themeColors.danger}
+                    style={styles.checklistItemIcon}
+                  />
+                  <Icon
+                    name={newPassHasNumber ? "checkmark-circle" : "apps-outline"}
+                    size={18}
+                    color={newPassHasNumber ? themeColors.success : themeColors.danger}
+                    style={styles.checklistItemIcon}
+                  />
+                  <Icon
+                    name={newPassHasSpecialChar ? "checkmark-circle" : "code-slash-outline"}
+                    size={18}
+                    color={newPassHasSpecialChar ? themeColors.success : themeColors.danger}
+                    style={styles.checklistItemIcon}
+                  />
+                  <Icon
+                    name={newPasswordsMatch && newPassword.length > 0 ? "checkmark-circle" : "git-compare-outline"}
+                    size={18}
+                    color={newPasswordsMatch && newPassword.length > 0 ? themeColors.success : themeColors.danger}
+                    style={styles.checklistItemIcon}
+                  />
+                </View>
+                <TouchableOpacity onPress={() => setShowPasswordInfoModal(true)} style={styles.passwordInfoButton}>
+                  <Icon name="information-circle-outline" size={22} color={themeColors.primary} />
+                </TouchableOpacity>
               </View>
             )}
 
@@ -1184,6 +1249,54 @@ export default function PetFeeder() {
             </TouchableOpacity>
           </View>
         </View>
+      </Modal>
+
+      {/* Password Requirements Info Modal */}
+      <Modal
+        visible={showPasswordInfoModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowPasswordInfoModal(false)}
+      >
+        <TouchableOpacity
+            style={styles.passwordInfoModalOverlay}
+            activeOpacity={1}
+            onPressOut={() => setShowPasswordInfoModal(false)}
+        >
+            <View style={styles.passwordInfoModalContent} onStartShouldSetResponder={() => true}>
+                <Text style={styles.passwordInfoModalTitle}>Password Must Contain:</Text>
+                <View style={styles.passwordInfoItem}>
+                    <Icon name="text-outline" size={18} color={themeColors.textSecondary} style={styles.passwordInfoIcon} />
+                    <Text style={styles.passwordInfoText}>At least 6 characters</Text>
+                </View>
+                <View style={styles.passwordInfoItem}>
+                    <Icon name="arrow-up-circle-outline" size={18} color={themeColors.textSecondary} style={styles.passwordInfoIcon} />
+                    <Text style={styles.passwordInfoText}>An uppercase letter (A-Z)</Text>
+                </View>
+                <View style={styles.passwordInfoItem}>
+                    <Icon name="arrow-down-circle-outline" size={18} color={themeColors.textSecondary} style={styles.passwordInfoIcon} />
+                    <Text style={styles.passwordInfoText}>A lowercase letter (a-z)</Text>
+                </View>
+                <View style={styles.passwordInfoItem}>
+                    <Icon name="apps-outline" size={18} color={themeColors.textSecondary} style={styles.passwordInfoIcon} />
+                    <Text style={styles.passwordInfoText}>A number (0-9)</Text>
+                </View>
+                <View style={styles.passwordInfoItem}>
+                    <Icon name="code-slash-outline" size={18} color={themeColors.textSecondary} style={styles.passwordInfoIcon} />
+                    <Text style={styles.passwordInfoText}>A special character (e.g., !@#$%)</Text>
+                </View>
+                <View style={styles.passwordInfoItem}>
+                    <Icon name="git-compare-outline" size={18} color={themeColors.textSecondary} style={styles.passwordInfoIcon} />
+                    <Text style={styles.passwordInfoText}>New passwords must match</Text>
+                </View>
+                <TouchableOpacity
+                    style={[styles.modalButton, styles.modalCloseButton, {marginTop: 15, width: '80%', alignSelf: 'center'}]}
+                    onPress={() => setShowPasswordInfoModal(false)}
+                >
+                    <Text style={styles.modalButtonText}>Got it</Text>
+                </TouchableOpacity>
+            </View>
+        </TouchableOpacity>
       </Modal>
 
        {/* Update Pet Details Modal */}
@@ -1722,5 +1835,91 @@ const styles = StyleSheet.create({
   },
   invalidCheck: {
     color: themeColors.danger,
+  },
+
+  passwordChecklistRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between', // info button to the right
+    width: '100%',
+    marginBottom: 15, 
+    // paddingHorizontal: 5, // optional: less space taken by checklist
+  },
+  passwordMinimalChecklist: { 
+    flexDirection: 'row',
+    // justifyContent: 'flex-start', 
+    alignItems: 'center',
+    flex: 1, 
+    marginRight: 10, 
+    justifyContent: 'space-around', 
+    paddingRight: 10, 
+  },
+  checklistItemIcon: {
+    marginHorizontal: 2, 
+  },
+  passwordInfoButton: {
+    padding: 5, 
+  },
+
+  passwordInfoModalOverlay: {
+    flex: 1,
+    justifyContent: 'center', // flex-end
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  passwordInfoModalContent: {
+    width: '85%', // or fixed width like 300
+    maxWidth: 320,
+    backgroundColor: themeColors.cardBackground,
+    borderRadius: 12,
+    padding: 20,
+    alignItems: 'flex-start', 
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  passwordInfoModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: themeColors.primary,
+    marginBottom: 15,
+    alignSelf: 'center',
+  },
+  passwordInfoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    width: '100%',
+  },
+  passwordInfoIcon: {
+    marginRight: 10,
+  },
+  passwordInfoText: {
+    fontSize: 15,
+    color: themeColors.textSecondary,
+    flexShrink: 1,
+  },
+  passwordInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    borderWidth: 1,
+    borderColor: themeColors.borderColor,
+    borderRadius: 8,
+    marginBottom: 15,
+    backgroundColor: themeColors.background,
+  },
+  passwordInputText: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingLeft: 15,
+    paddingRight: 5, 
+    fontSize: 16,
+    color: themeColors.textPrimary,
+  },
+  passwordToggleIcon: {
+    padding: 10,
   },
 });

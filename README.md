@@ -15,6 +15,8 @@
 
 ## Current Version
 
+v8.1 - added password checklist in change password and edited eye button in password fields
+
 v8 - petfeeder/index UI OVERHAUL
 
 (Note: Current readme is temporary)

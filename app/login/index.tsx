@@ -1,17 +1,8 @@
 // UPDATED LOGIN UI
 // Changes made by me (Ryan):
 
-// v2:
-// fixed ui
-
-// v2.1:
-// adjusted login captcha box and ui padding
-
-// v3:
-// fixed for resetpassword
-
-// v6:
-// still for testing: bug fix on routing (might be stable?)
+// v8.1:
+// change show button -> eye
 import { useState, useEffect } from "react";
 import {
   View,
@@ -28,6 +19,7 @@ import { Link, useRouter, useNavigation } from "expo-router";
 import { signInWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
 import { auth } from "../firebaseConfig"; 
 import { getDatabase, ref, get } from "firebase/database";
+import Icon from "react-native-vector-icons/Ionicons";
 
 export default function Login() {
 
@@ -192,25 +184,26 @@ export default function Login() {
         autoComplete="email" 
       />
 
-      <View style={styles.passwordContainer}>
+      <View style={[styles.passwordInputContainer, {height: 50}]}>
         <TextInput
-          style={styles.input} 
-          placeholder="Password"
-          placeholderTextColor="#888"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry={!showPassword}
-          autoComplete="password" 
+            style={styles.passwordInputText}
+            placeholder="Password"
+            placeholderTextColor="#888"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+            autoComplete="password" 
         />
-        {/* Show/Hide Password Button */}
         <TouchableOpacity
-          style={styles.eyeButton}
+          style={styles.passwordToggleIcon}
           onPress={() => setShowPassword(!showPassword)}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={styles.eyeButtonText}>
-            {showPassword ? 'Hide' : 'Show'}
-          </Text>
+          <Icon
+            name={showPassword ? "eye-outline" : "eye-off-outline"}
+            size={22}
+            color="#A06CD5"
+          />
         </TouchableOpacity>
       </View>
 
@@ -406,4 +399,29 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 15,
   },
+
+  passwordInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    borderWidth: 1,
+    borderColor: "#A06CD5",
+    borderRadius: 8,
+    marginBottom: 15,
+    backgroundColor: "#fff",
+    // height: 50,
+  },
+  passwordInputText: {
+    flex: 1,
+    // height: 50 container, paddingVertical: 12 
+    paddingVertical: 12, 
+    paddingLeft: 15,
+    paddingRight: 10,
+    fontSize: 16,
+    color: '#333',
+  },
+  passwordToggleIcon: {
+    padding: 12,
+  },
+  
 });

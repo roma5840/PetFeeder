@@ -1,8 +1,8 @@
 // UPDATED REGISTER UI
 // Changes made by me (Ryan):
 
-// v2:
-// fixed ui
+// v8.1:
+// change show button -> eye
 import { useState, useEffect } from "react";
 import {
   View,
@@ -22,6 +22,7 @@ import {
 import { Link, useRouter, useNavigation } from "expo-router";
 import { createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
 import { auth } from "../firebaseConfig";
+import Icon from "react-native-vector-icons/Ionicons";
 
 export default function Register() {
 
@@ -137,24 +138,54 @@ export default function Register() {
               autoComplete="email"
             />
 
-            <View style={styles.passwordContainer}>
-              <TextInput style={styles.input} placeholder="Password" placeholderTextColor="#888" value={password}
-                onChangeText={(text) => { setPassword(text); validatePassword(text); }}
-                secureTextEntry={!showPassword} autoComplete="new-password"
+            {/* Password Field with Toggle */}
+            <View style={[styles.passwordInputContainer, {height: 48}]}>
+              <TextInput
+                  style={styles.passwordInputText}
+                  placeholder="Password"
+                  placeholderTextColor="#888"
+                  value={password}
+                  onChangeText={(text) => { setPassword(text); validatePassword(text); }}
+                  secureTextEntry={!showPassword}
+                  autoComplete="new-password"
               />
-              <TouchableOpacity style={styles.eyeButton} onPress={() => setShowPassword(!showPassword)} hitSlop={styles.hitSlop}>
-                <Text style={styles.eyeButtonText}>{showPassword ? 'Hide' : 'Show'}</Text>
+              <TouchableOpacity
+                style={styles.passwordToggleIcon}
+                onPress={() => setShowPassword(!showPassword)}
+                hitSlop={styles.hitSlop}
+              >
+                <Icon
+                  name={showPassword ? "eye-outline" : "eye-off-outline"}
+                  size={22}
+                  color="#A06CD5"
+                />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.passwordContainer}>
-              <TextInput style={styles.input} placeholder="Confirm Password" placeholderTextColor="#888" value={confirmPassword}
-                onChangeText={setConfirmPassword} secureTextEntry={!showConfirmPassword} autoComplete="new-password"
+            {/* Confirm Password Field with Toggle */}
+            <View style={[styles.passwordInputContainer, {height: 48}]}>
+              <TextInput
+                  style={styles.passwordInputText}
+                  placeholder="Confirm Password"
+                  placeholderTextColor="#888"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry={!showConfirmPassword}
+                  autoComplete="new-password"
               />
-              <TouchableOpacity style={styles.eyeButton} onPress={() => setShowConfirmPassword(!showConfirmPassword)} hitSlop={styles.hitSlop}>
-                <Text style={styles.eyeButtonText}>{showConfirmPassword ? 'Hide' : 'Show'}</Text>
+              <TouchableOpacity
+                style={styles.passwordToggleIcon}
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                hitSlop={styles.hitSlop}
+              >
+                <Icon
+                  name={showConfirmPassword ? "eye-outline" : "eye-off-outline"}
+                  size={22}
+                  color="#A06CD5"
+                />
               </TouchableOpacity>
             </View>
+
           </View>
 
           {/* Password Requirements Checklist */}
@@ -318,5 +349,30 @@ const styles = StyleSheet.create({
 
   hitSlop: {
       top: 10, bottom: 10, left: 10, right: 10
-  }
+  },
+
+  passwordInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    borderWidth: 1,
+    borderColor: "#A06CD5",
+    borderRadius: 8,
+    marginBottom: 15,
+    backgroundColor: "#fff",
+    // height: 50,
+  },
+  passwordInputText: {
+    flex: 1,
+    // height: 50 container, paddingVertical: 12 
+    paddingVertical: 12, 
+    paddingLeft: 15,
+    paddingRight: 10,
+    fontSize: 16,
+    color: '#333',
+  },
+  passwordToggleIcon: {
+    padding: 12,
+  },
+  
 });
