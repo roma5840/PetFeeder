@@ -225,7 +225,7 @@ export default function Login() {
             value={captchaAnswer}
             onChangeText={setCaptchaAnswer}
             keyboardType="number-pad"
-            maxLength={3}
+            maxLength={2}
           />
         </View>
 

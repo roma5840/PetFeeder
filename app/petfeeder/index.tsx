@@ -6,6 +6,9 @@
 
 // v7:
 // added change password with password validation
+
+// v8:
+// PETFEEDER UI OVERHAUL
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
@@ -520,9 +523,26 @@ export default function PetFeeder() {
       const newRecWeight = calculateRecommendedWeight(updates.petWeight);
       setRecommendedWeight(newRecWeight);
       console.log("Local state updated.");
-      setShowUpdatePetModal(false);
-      console.log("Modal closed.");
-      setTimeout(() => { Alert.alert("Success", "Pet details updated."); }, 100);
+
+      // setShowUpdatePetModal(false);
+      // console.log("Modal closed.");
+      setTimeout(() => {
+        Alert.alert(
+          "Success",
+          "Pet details updated.",
+          [
+            {
+              text: "OK",
+              onPress: () => {
+                setShowUpdatePetModal(false);
+                setShowSettingsModal(true);
+              }
+            }
+          ],
+          { cancelable: false }
+        );
+      }, 100);
+
     } catch (error) {
       console.error("Error updating pet details:", error);
       Alert.alert("Error", "Failed to update pet details. Please check your connection and try again.");
@@ -733,56 +753,84 @@ export default function PetFeeder() {
 
       {/* Header */}
       <View style={styles.headerContainer}>
-        <Text style={styles.headerTitle}>PET FEEDER</Text>
-        <TouchableOpacity onPress={() => setShowSettingsModal(true)} style={styles.settingsIcon}>
-            <Icon name="settings-outline" size={28} color="#333" />
+        <Icon name="paw" size={32} color={styles.themePalette.primary.color} style={styles.headerIcon} />
+        <Text style={styles.headerTitle}>Dashboard</Text>
+        <TouchableOpacity onPress={() => setShowSettingsModal(true)} style={styles.settingsButton}>
+            <Icon name="settings-sharp" size={26} color={styles.themePalette.primary.color} />
         </TouchableOpacity>
       </View>
 
       {/* Pet Details Section */}
-      <View style={styles.sectionContainer}>
-         <Text style={styles.sectionTitle}>Pet Details</Text>
-         <Text style={styles.infoText}>Name: {petName}</Text>
-         <Text style={styles.infoText}>Type: {petType}</Text>
-         <Text style={styles.infoText}>Weight: {petWeight} kg</Text>
+      <View style={styles.sectionCard}>
+         <View style={styles.sectionHeader}>
+            <Icon name="information-circle-outline" size={24} color={styles.themePalette.primary.color} />
+            <Text style={styles.sectionTitle}>Pet Details</Text>
+         </View>
+         <View style={styles.detailRow}>
+            <Icon name="paw-outline" size={20} style={styles.detailIcon} />
+            <Text style={styles.infoTextLabel}>Name: </Text><Text style={styles.infoTextValue}>{petName}</Text>
+         </View>
+         <View style={styles.detailRow}>
+            <Icon name="apps-outline" size={20} style={styles.detailIcon} />
+            <Text style={styles.infoTextLabel}>Type: </Text><Text style={styles.infoTextValue}>{petType}</Text>
+         </View>
+         <View style={styles.detailRow}>
+            <Icon name="barbell-outline" size={20} style={styles.detailIcon} />
+            <Text style={styles.infoTextLabel}>Weight: </Text><Text style={styles.infoTextValue}>{petWeight} kg</Text>
+         </View>
       </View>
 
       {/* Feeder Status Section */}
-       <View style={styles.sectionContainer}>
-         <Text style={styles.sectionTitle}>Feeder Status</Text>
-         <View style={styles.statusRow}>
-            <Text style={styles.infoText}>Status: </Text>
-            <View style={[styles.statusIndicator, { backgroundColor: feederOnline ? '#4CAF50' : '#F44336' }]} />
-            <Text style={[styles.infoText, { marginLeft: 5 }]}>{feederOnline ? 'Online' : 'Offline'}</Text>
+       <View style={styles.sectionCard}>
+         <View style={styles.sectionHeader}>
+            <Icon name="pulse-outline" size={24} color={styles.themePalette.primary.color} />
+            <Text style={styles.sectionTitle}>Feeder Status</Text>
          </View>
-         <Text style={styles.infoText}>Food Level: {foodLevelStatus}</Text>
-         <Text style={styles.infoText}>Last Feed: {lastFeedInfo}</Text>
+         <View style={styles.statusRow}>
+            <Text style={styles.infoTextLabel}>Status: </Text>
+            <View style={[styles.statusIndicator, { backgroundColor: feederOnline ? styles.themePalette.success.color : styles.themePalette.danger.color }]} />
+            <Text style={[styles.infoTextValue, { marginLeft: 8, fontWeight: 'bold', color: feederOnline ? styles.themePalette.success.color : styles.themePalette.danger.color }]}>{feederOnline ? 'Online' : 'Offline'}</Text>
+         </View>
+         <View style={styles.detailRow}>
+            <Icon name="cube-outline" size={20} style={styles.detailIcon} />
+            <Text style={styles.infoTextLabel}>Food Level: </Text><Text style={styles.infoTextValue}>{foodLevelStatus}</Text>
+         </View>
+         <View style={styles.detailRow}>
+            <Icon name="time-outline" size={20} style={styles.detailIcon} />
+            <Text style={styles.infoTextLabel}>Last Feed: </Text><Text style={styles.infoTextValue}>{lastFeedInfo}</Text>
+         </View>
          {feederError !== "None" && (
-             <Text style={[styles.infoText, styles.errorText]}>Error: {feederError}</Text>
+            <View style={styles.detailRow}>
+                <Icon name="alert-circle-outline" size={20} style={[styles.detailIcon, { color: styles.themePalette.danger.color }]} />
+                <Text style={[styles.infoTextLabel, styles.errorText]}>Error: </Text><Text style={[styles.infoTextValue, styles.errorText]}>{feederError}</Text>
+            </View>
          )}
        </View>
 
       {/* Feeding Control Section */}
-      <View style={styles.sectionContainer}>
-        <Text style={styles.sectionTitle}>Feeding Control</Text>
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionHeader}>
+            <Icon name="restaurant-outline" size={24} color={styles.themePalette.primary.color} />
+            <Text style={styles.sectionTitle}>Feeding Control</Text>
+        </View>
         <View style={styles.feedingRow}>
-            <Text style={styles.infoText}>Recommended: {recommendedWeight}g / meal</Text>
+            <Text style={styles.infoText}>Recommended: <Text style={{fontWeight: 'bold'}}>{recommendedWeight}g</Text> / meal</Text>
             <TouchableOpacity style={styles.guideButton} onPress={() => setShowFeedingGuideModal(true)}>
+                <Icon name="help-circle-outline" size={18} color={styles.themePalette.primary.color} />
                 <Text style={styles.guideButtonText}>Guide</Text>
             </TouchableOpacity>
         </View>
 
         <TextInput
           style={styles.input}
-          placeholder={`Enter feeding weight (g) e.g. ${recommendedWeight !== 'N/A' ? recommendedWeight : '100'}`}
-          placeholderTextColor="#888"
+          placeholder={`Enter feeding weight (g), e.g. ${recommendedWeight !== 'N/A' ? recommendedWeight : '100'}`}
+          placeholderTextColor={styles.themePalette.textMuted.color}
           keyboardType="number-pad"
           value={manualWeight}
           onChangeText={handleManualWeightChange}
           maxLength={3}
         />
 
-        {/* Feed Now Button */}
         <TouchableOpacity
             style={[
               styles.actionButton,
@@ -795,24 +843,30 @@ export default function PetFeeder() {
             {isFeeding ? (
                 <ActivityIndicator size="small" color="#fff" />
             ) : (
-                <Text style={styles.buttonText}>Feed Now ({manualWeight || 'N/A'}g)</Text>
+                <>
+                  <Icon name="play-circle-outline" size={20} color="#fff" style={{ marginRight: 8 }}/>
+                  <Text style={styles.buttonText}>Feed Now ({manualWeight || 'N/A'}g)</Text>
+                </>
             )}
         </TouchableOpacity>
       </View>
 
 
       {/* Schedule Section */}
-      <View style={styles.sectionContainer}>
-        <Text style={styles.sectionTitle}>Feeding Schedule</Text>
-        <TouchableOpacity style={[styles.actionButton, styles.addTimeButton]} onPress={handleAddFeedingTime}>
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionHeader}>
+            <Icon name="calendar-outline" size={24} color={styles.themePalette.primary.color} />
+            <Text style={styles.sectionTitle}>Feeding Schedule</Text>
+        </View>
+        <TouchableOpacity style={[styles.actionButton, styles.addTimeButton]} onPress={handleAddFeedingTime} disabled={isSaving}>
+          <Icon name="add-circle-outline" size={20} color="#fff" style={{ marginRight: 8 }}/>
           <Text style={styles.buttonText}>Add Schedule Time</Text>
         </TouchableOpacity>
 
-        {/* Loading indicator for saves */}
-        {/* {isSaving && <ActivityIndicator size="small" color="#A06CD5" style={{ marginVertical: 5 }}/>} */}
+        {/* {isSaving && <ActivityIndicator size="small" color={styles.themePalette.primary.color} style={{ marginVertical: 10 }}/>} */}
 
-        {schedules.length === 0 && !isLoading ? (
-             <Text style={styles.noSchedulesText}>No schedules added yet.</Text>
+        {schedules.length === 0 && !isLoading && !isSaving ? (
+             <Text style={styles.emptyStateText}>No schedules added yet. Tap above to add one!</Text>
         ) : (
             <FlatList
               data={schedules.slice().sort((a, b) => {
@@ -844,38 +898,44 @@ export default function PetFeeder() {
               keyExtractor={(item) => item.id}
               renderItem={({ item }) => (
               <View style={styles.scheduleItem}>
+                  <Icon name="alarm-outline" size={24} color={styles.themePalette.primary.color} style={styles.scheduleIcon} />
                   <View style={styles.scheduleInfo}>
                       <Text style={styles.scheduleTime}>{item.time}</Text>
                       <Text style={styles.scheduleWeight}>{item.weight}g</Text>
                   </View>
                   <View style={styles.scheduleControls}>
                       <Switch
-                          trackColor={{ false: "#ccc", true: "#B185DB" }}
-                          thumbColor={item.isOn ? "#A06CD5" : "#f4f3f4"}
-                          ios_backgroundColor="#3e3e3e"
+                          trackColor={{ false: "#D1C4E9", true: styles.themePalette.light.color }}
+                          thumbColor={item.isOn ? styles.themePalette.primary.color : "#f4f3f4"}
+                          ios_backgroundColor="#E0E0E0"
                           onValueChange={() => toggleSchedule(item.id)}
                           value={item.isOn}
                           disabled={isSaving}
+                          style={{ transform: [{ scaleX: .9 }, { scaleY: .9 }] }}
                       />
                       <TouchableOpacity onPress={() => deleteSchedule(item.id)} style={styles.deleteButton} disabled={isSaving}>
-                          <Icon name="trash-outline" size={22} color={isSaving ? "#aaa" : "#dc3545"} />
+                          <Icon name="trash-bin-outline" size={22} color={isSaving ? styles.themePalette.textMuted.color : styles.themePalette.danger.color} />
                       </TouchableOpacity>
                   </View>
               </View>
               )}
               scrollEnabled={false}
+              ItemSeparatorComponent={() => <View style={styles.listItemSeparator} />}
             />
         )}
       </View>
 
       {/* Feeding History Section */}
-      <View style={styles.sectionContainer}>
-        <Text style={styles.sectionTitle}>Feeding History (Last 20)</Text>
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionHeader}>
+            <Icon name="list-outline" size={24} color={styles.themePalette.primary.color} />
+            <Text style={styles.sectionTitle}>Feeding History (Last 20)</Text>
+        </View>
         {isLoadingHistory && (
-            <ActivityIndicator size="small" color="#A06CD5" style={{ marginVertical: 15 }} />
+            <ActivityIndicator size="small" color={styles.themePalette.primary.color} style={{ marginVertical: 20 }} />
         )}
         {!isLoadingHistory && feedingHistory.length === 0 && (
-            <Text style={styles.noHistoryText}>No feeding history recorded yet.</Text>
+            <Text style={styles.emptyStateText}>No feeding history recorded yet.</Text>
         )}
         {!isLoadingHistory && feedingHistory.length > 0 && (
             <FlatList
@@ -883,17 +943,20 @@ export default function PetFeeder() {
                 keyExtractor={(item) => item.id}
                 renderItem={({ item }) => (
                     <View style={styles.historyItem}>
+                        <Icon
+                            name={item.type === 'manual' ? "hand-right-outline" : "sync-circle-outline"}
+                            size={24}
+                            color={item.type === 'manual' ? styles.themePalette.accent.color : styles.themePalette.info.color}
+                            style={styles.historyIcon}
+                        />
                         <View style={styles.historyInfo}>
                             <Text style={styles.historyTimestamp}>{formatHistoryTimestamp(item.timestamp)}</Text>
-                            <Text style={styles.historyDetails}>Amount: {item.amount || 'N/A'}g</Text>
+                            <Text style={styles.historyDetails}>Amount: {item.amount || 'N/A'}g - <Text style={{fontWeight: 'bold'}}>{item.type === 'manual' ? 'Manual' : 'Scheduled'}</Text></Text>
                         </View>
-                        <Text style={[ styles.historyType, item.type === 'manual' ? styles.historyTypeManual : styles.historyTypeScheduled ]}>
-                            {item.type === 'manual' ? 'Manual' : 'Scheduled'}
-                        </Text>
                     </View>
                 )}
                 scrollEnabled={false}
-                ItemSeparatorComponent={() => <View style={styles.historySeparator} />}
+                ItemSeparatorComponent={() => <View style={styles.listItemSeparator} />}
             />
         )}
       </View>
@@ -901,6 +964,7 @@ export default function PetFeeder() {
       {showPicker && (
         <DateTimePicker
           value={selectedTime} mode="time" is24Hour={false} display="spinner" onChange={onTimeSelected}
+          // maybe add accentColor for Android picker
         />
       )}
 
@@ -908,16 +972,17 @@ export default function PetFeeder() {
       <Modal visible={showFeedingGuideModal} transparent={true} animationType="fade" onRequestClose={() => setShowFeedingGuideModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
+            <Icon name="book-outline" size={30} color={styles.themePalette.primary.color} style={{marginBottom: 10}} />
             <Text style={styles.modalTitle}>Feeding Guide (Example)</Text>
-            <Text style={styles.modalText}>- Below 5kg: ~50g per meal</Text>
-            <Text style={styles.modalText}>- 5-10kg: ~120g per meal</Text>
-            <Text style={styles.modalText}>- 10-20kg: ~200g per meal</Text>
-            <Text style={styles.modalText}>- 20-30kg: ~300g per meal</Text>
-            <Text style={styles.modalText}>- 30-40kg: ~400g per meal</Text>
-            <Text style={styles.modalText}>- 40kg+: ~500g per meal</Text>
+            <Text style={styles.modalText}>• Below 5kg: ~50g per meal</Text>
+            <Text style={styles.modalText}>• 5-10kg: ~120g per meal</Text>
+            <Text style={styles.modalText}>• 10-20kg: ~200g per meal</Text>
+            <Text style={styles.modalText}>• 20-30kg: ~300g per meal</Text>
+            <Text style={styles.modalText}>• 30-40kg: ~400g per meal</Text>
+            <Text style={styles.modalText}>• 40kg+: ~500g per meal</Text>
             <Text style={styles.modalNote}>Note: These are general guidelines. Consult your vet for specific recommendations.</Text>
-            <TouchableOpacity style={[styles.modalButton, styles.closeButton]} onPress={() => setShowFeedingGuideModal(false)}>
-              <Text style={styles.buttonText}>Close</Text>
+            <TouchableOpacity style={[styles.modalButton, styles.modalCloseButton]} onPress={() => setShowFeedingGuideModal(false)}>
+              <Text style={styles.modalButtonText}>Got it!</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -927,51 +992,35 @@ export default function PetFeeder() {
       <Modal visible={showSettingsModal} transparent={true} animationType="fade" onRequestClose={() => setShowSettingsModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
+            <Icon name="settings-outline" size={30} color={styles.themePalette.primary.color} style={{marginBottom: 10}} />
             <Text style={styles.modalTitle}>Settings</Text>
 
-            {/* --- Pet Section --- */}
-            <View style={styles.modalSection}>
-              <TouchableOpacity style={styles.modalButton} onPress={openUpdateModal} disabled={isSaving}>
-                <View style={styles.modalButtonRow}>
-                  <Icon name="paw-outline" size={22} style={styles.modalButtonIcon} />
-                  <Text style={styles.modalButtonText}>Update Pet Details</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={styles.settingsMenuItem} onPress={openUpdateModal} disabled={isSaving}>
+              <Icon name="paw-outline" size={22} style={styles.settingsMenuItemIcon} />
+              <Text style={styles.settingsMenuItemText}>Update Pet Details</Text>
+              <Icon name="chevron-forward-outline" size={22} style={styles.settingsMenuChevron} />
+            </TouchableOpacity>
 
-            {/* --- Account Section Button --- */}
-            <View style={styles.modalSection}>
-              <TouchableOpacity style={styles.modalButton} onPress={openAccountModal} disabled={isSaving}>
-                 <View style={styles.modalButtonRow}>
-                  <Icon name="person-circle-outline" size={22} style={styles.modalButtonIcon} />
-                  <Text style={styles.modalButtonText}>Account Settings</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={styles.settingsMenuItem} onPress={openAccountModal} disabled={isSaving}>
+              <Icon name="person-circle-outline" size={22} style={styles.settingsMenuItemIcon} />
+              <Text style={styles.settingsMenuItemText}>Account Settings</Text>
+              <Icon name="chevron-forward-outline" size={22} style={styles.settingsMenuChevron} />
+            </TouchableOpacity>
 
-            {/* --- Logout Section --- */}
-            <View style={styles.modalSection}>
-              <TouchableOpacity style={styles.modalButton} onPress={handleLogout} disabled={isSaving}>
-                 <View style={styles.modalButtonRow}>
-                  <Icon name="log-out-outline" size={22} style={styles.modalButtonIcon} />
-                  <Text style={styles.modalButtonText}>Logout</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={styles.settingsMenuItem} onPress={handleLogout} disabled={isSaving}>
+              <Icon name="log-out-outline" size={22} style={[styles.settingsMenuItemIcon, {color: themeColors.textPrimary}]} />
+              <Text style={[styles.settingsMenuItemText, {color: themeColors.textPrimary}]}>Logout</Text>
+              <Icon name="chevron-forward-outline" size={22} style={[styles.settingsMenuChevron, {color: themeColors.textPrimary}]} />
+            </TouchableOpacity>
 
-            {/* Loading Indicator (for pet details save, delete account) */}
-            {isSaving && <ActivityIndicator size="small" color="#A06CD5" style={{ marginVertical: 10 }}/>}
+            {isSaving && <ActivityIndicator size="small" color={styles.themePalette.primary.color} style={{ marginVertical: 15 }}/>}
 
-            {/* Close Button */}
             <TouchableOpacity
-              style={[styles.modalButton, styles.closeButton]}
+              style={[styles.modalButton, styles.modalCloseButton, {marginTop: 20}]}
               onPress={() => setShowSettingsModal(false)}
               disabled={isSaving}
             >
-              <View style={styles.modalButtonRow}>
-                  <Icon name="close-circle-outline" size={22} style={[styles.modalButtonIcon, { color: '#fff' }]} />
-                  <Text style={styles.buttonText}>Close</Text>
-              </View>
+              <Text style={styles.modalButtonText}>Close</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -981,63 +1030,54 @@ export default function PetFeeder() {
       <Modal visible={showAccountModal} transparent={true} animationType="fade" onRequestClose={() => !isSaving && setShowAccountModal(false)}>
         <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
+                <Icon name="person-circle-outline" size={30} color={styles.themePalette.primary.color} style={{marginBottom: 10}} />
                 <Text style={styles.modalTitle}>Account Settings</Text>
 
-              {/* --- Display Email Section --- */}
                 <View style={styles.modalSection}>
                     <Text style={styles.modalSectionHeader}>Account Email</Text>
-                    <Text style={styles.infoText}>
-                        {user ? user.email : 'N/A'}
-                    </Text>
-                    {user && !user.emailVerified && ( 
-                        <Text style={[styles.infoText, { color: '#ffc107', marginTop: 5, fontSize: 14 }]}>
-                            (Not Verified)
+                    <View style={styles.accountEmailContainer}>
+                        <Icon name="mail-outline" size={20} style={styles.accountEmailIcon} />
+                        <Text style={styles.infoTextValueEmphasized}>
+                            {user ? user.email : 'N/A'}
+                        </Text>
+                    </View>
+                    {user && !user.emailVerified && (
+                        <Text style={styles.verificationWarningText}>
+                            <Icon name="alert-circle-outline" size={14} color={styles.themePalette.warning.color} /> Email not verified
                         </Text>
                     )}
                 </View>
 
-                <View style={styles.modalSection}>
-                    <TouchableOpacity
-                        style={[styles.modalButton, styles.changePasswordTriggerButton]}
-                        onPress={openChangePasswordModal}
-                        disabled={isSaving}
-                    >
-                        <View style={styles.modalButtonRow}>
-                            <Icon name="key-outline" size={22} style={[styles.modalButtonIcon, styles.changePasswordTriggerButtonIconText]} />
-                            <Text style={[styles.modalButtonText, styles.changePasswordTriggerButtonIconText]}>Change Password</Text>
-                        </View>
-                    </TouchableOpacity>
-                </View>
+                <TouchableOpacity style={styles.settingsMenuItem} onPress={openChangePasswordModal} disabled={isSaving}>
+                    <Icon name="key-outline" size={22} style={styles.settingsMenuItemIcon} />
+                    <Text style={styles.settingsMenuItemText}>Change Password</Text>
+                    <Icon name="chevron-forward-outline" size={22} style={styles.settingsMenuChevron} />
+                </TouchableOpacity>
 
-                {/* --- Delete Account Section --- */}
                 <View style={styles.modalSection}>
                     <Text style={styles.modalSectionHeader}>Delete Account</Text>
                     <TouchableOpacity
-                        style={[styles.modalButton, styles.modalDeleteButton, (isSaving) && styles.buttonDisabled]}
+                        style={[styles.modalButton, styles.modalDeleteButton, isSaving && styles.buttonDisabled]}
                         onPress={handleDeleteAccount}
-                        disabled={isSaving }
+                        disabled={isSaving}
                     >
-                        <View style={styles.modalButtonRowCenter}>
-                            <Icon name="trash-outline" size={20} style={[styles.modalButtonIcon, styles.modalDeleteButtonText, { marginRight: 5 }]} />
-                            <Text style={[styles.modalButtonText, styles.modalDeleteButtonText]}>Delete Account Permanently</Text>
-                        </View>
+                        <Icon name="trash-bin-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+                        <Text style={styles.modalButtonText}>Delete Account Permanently</Text>
                     </TouchableOpacity>
-                    <Text style={styles.modalNoteSmall}>This action is irreversible.</Text>
+                    <Text style={styles.modalNoteSmall}>This action is irreversible and will delete all your data.</Text>
                 </View>
 
-                {/* Loading Indicator (for delete account) */}
-                {isSaving && <ActivityIndicator size="small" color="#A06CD5" style={{ marginVertical: 10 }}/>}
+                {isSaving && <ActivityIndicator size="small" color={styles.themePalette.primary.color} style={{ marginVertical: 15 }}/>}
 
-                {/* Close Button */}
                 <TouchableOpacity
-                    style={[styles.modalButton, styles.closeButton]}
-                    onPress={() => setShowAccountModal(false)}
+                    style={[styles.modalButton, styles.modalCloseButton, {marginTop: 10}]}
+                    onPress={() => {
+                      setShowAccountModal(false);
+                      setShowSettingsModal(true);
+                  }}
                     disabled={isSaving}
                 >
-                    <View style={styles.modalButtonRowCenter}>
-                        <Icon name="close-circle-outline" size={22} style={[styles.modalButtonIcon, { color: '#fff' }]} />
-                        <Text style={styles.buttonText}>Cancel</Text>
-                    </View>
+                    <Text style={styles.modalButtonText}>Back to Settings</Text>
                 </TouchableOpacity>
             </View>
         </View>
@@ -1052,120 +1092,115 @@ export default function PetFeeder() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
+            <Icon name="lock-closed-outline" size={30} color={styles.themePalette.primary.color} style={{marginBottom: 10}} />
             <Text style={styles.modalTitle}>Change Password</Text>
 
-            <View style={styles.modalSectionNoBorder}>
-              <TextInput
-                  style={styles.modalInput}
-                  placeholder="Current Password"
-                  placeholderTextColor="#888"
-                  value={currentPassword}
-                  onChangeText={setCurrentPassword}
-                  secureTextEntry={true}
-                  autoComplete="password"
-                  editable={!isChangingPassword}
-              />
-              <TextInput
-                  style={styles.modalInput}
-                  placeholder="New Password"
-                  placeholderTextColor="#888"
-                  value={newPassword}
-                  onChangeText={(text) => {
-                    setNewPassword(text);
-                    validateNewPassword(text, confirmNewPassword);
-                }}
-                  secureTextEntry={true}
-                  autoComplete="new-password"
-                  editable={!isChangingPassword}
-              />
-              <TextInput
-                  style={styles.modalInput}
-                  placeholder="Confirm New Password"
-                  placeholderTextColor="#888"
-                  value={confirmNewPassword}
-                  onChangeText={(text) => {
-                    setConfirmNewPassword(text);
-                    validateNewPassword(newPassword, text);
-                }}
-                  secureTextEntry={true}
-                  autoComplete="new-password"
-                  editable={!isChangingPassword}
-              />
+            <TextInput
+                style={styles.modalInput}
+                placeholder="Current Password"
+                placeholderTextColor={styles.themePalette.textMuted.color}
+                value={currentPassword}
+                onChangeText={setCurrentPassword}
+                secureTextEntry={true}
+                autoComplete="password"
+                editable={!isChangingPassword}
+            />
+            <TextInput
+                style={styles.modalInput}
+                placeholder="New Password"
+                placeholderTextColor={styles.themePalette.textMuted.color}
+                value={newPassword}
+                onChangeText={(text) => {
+                  setNewPassword(text);
+                  validateNewPassword(text, confirmNewPassword);
+              }}
+                secureTextEntry={true}
+                autoComplete="new-password"
+                editable={!isChangingPassword}
+            />
+            <TextInput
+                style={styles.modalInput}
+                placeholder="Confirm New Password"
+                placeholderTextColor={styles.themePalette.textMuted.color}
+                value={confirmNewPassword}
+                onChangeText={(text) => {
+                  setConfirmNewPassword(text);
+                  validateNewPassword(newPassword, text);
+              }}
+                secureTextEntry={true}
+                autoComplete="new-password"
+                editable={!isChangingPassword}
+            />
 
-
-               {(newPassword.length > 0 || confirmNewPassword.length > 0) && ( 
-                <View style={styles.passwordChecklistContainer}>
-                  <Text style={styles.passwordChecklistItem}>
-                    <Icon name={newPassHasMinLength ? "checkmark-circle" : "ellipse-outline"} size={16} color={newPassHasMinLength ? styles.validCheck.color : styles.invalidCheck.color} /> Min 6 chars
-                  </Text>
-                  <Text style={styles.passwordChecklistItem}>
-                    <Icon name={newPassHasUpperCase ? "checkmark-circle" : "ellipse-outline"} size={16} color={newPassHasUpperCase ? styles.validCheck.color : styles.invalidCheck.color} /> Uppercase
-                  </Text>
-                  <Text style={styles.passwordChecklistItem}>
-                    <Icon name={newPassHasLowerCase ? "checkmark-circle" : "ellipse-outline"} size={16} color={newPassHasLowerCase ? styles.validCheck.color : styles.invalidCheck.color} /> Lowercase
-                  </Text>
-                  <Text style={styles.passwordChecklistItem}>
-                    <Icon name={newPassHasNumber ? "checkmark-circle" : "ellipse-outline"} size={16} color={newPassHasNumber ? styles.validCheck.color : styles.invalidCheck.color} /> Number
-                  </Text>
-                  <Text style={styles.passwordChecklistItem}>
-                    <Icon name={newPassHasSpecialChar ? "checkmark-circle" : "ellipse-outline"} size={16} color={newPassHasSpecialChar ? styles.validCheck.color : styles.invalidCheck.color} /> Special
-                  </Text>
-                  <Text style={styles.passwordChecklistItem}>
-                    <Icon name={newPasswordsMatch ? "checkmark-circle" : "ellipse-outline"} size={16} color={newPasswordsMatch ? styles.validCheck.color : styles.invalidCheck.color} /> Match
-                  </Text>
-                </View>
-              )}
-
-
-            </View>
-
-            {/* {isChangingPassword && <ActivityIndicator size="small" color="#A06CD5" style={{ marginVertical: 10 }} />} */}
+             {(newPassword.length > 0 || confirmNewPassword.length > 0) && (
+              <View style={styles.passwordChecklistContainer}>
+                <Text style={[styles.passwordChecklistItem, newPassHasMinLength ? styles.validCheck : styles.invalidCheck]}>
+                  <Icon name={newPassHasMinLength ? "checkmark-circle" : "close-circle"} size={16} /> Min 6 chars
+                </Text>
+                <Text style={[styles.passwordChecklistItem, newPassHasUpperCase ? styles.validCheck : styles.invalidCheck]}>
+                  <Icon name={newPassHasUpperCase ? "checkmark-circle" : "close-circle"} size={16} /> Uppercase
+                </Text>
+                <Text style={[styles.passwordChecklistItem, newPassHasLowerCase ? styles.validCheck : styles.invalidCheck]}>
+                  <Icon name={newPassHasLowerCase ? "checkmark-circle" : "close-circle"} size={16} /> Lowercase
+                </Text>
+                <Text style={[styles.passwordChecklistItem, newPassHasNumber ? styles.validCheck : styles.invalidCheck]}>
+                  <Icon name={newPassHasNumber ? "checkmark-circle" : "close-circle"} size={16} /> Number
+                </Text>
+                <Text style={[styles.passwordChecklistItem, newPassHasSpecialChar ? styles.validCheck : styles.invalidCheck]}>
+                  <Icon name={newPassHasSpecialChar ? "checkmark-circle" : "close-circle"} size={16} /> Special
+                </Text>
+                <Text style={[styles.passwordChecklistItem, newPasswordsMatch ? styles.validCheck : styles.invalidCheck]}>
+                  <Icon name={newPasswordsMatch ? "checkmark-circle" : "close-circle"} size={16} /> Match
+                </Text>
+              </View>
+            )}
 
             <TouchableOpacity
                 style={[
                     styles.modalButton,
-                    styles.updatePasswordButton,
-                    (isChangingPassword || !currentPassword || !newPassword || !confirmNewPassword || newPassword !== confirmNewPassword) && styles.buttonDisabled,
+                    styles.modalPrimaryButton,
+                    (isChangingPassword || !currentPassword || !newPassword || !confirmNewPassword || !(newPassHasMinLength && newPassHasUpperCase && newPassHasLowerCase && newPassHasNumber && newPassHasSpecialChar && newPasswordsMatch)) && styles.buttonDisabled,
                 ]}
                 onPress={handleChangePassword}
                 disabled={
-                  isChangingPassword ||
-                  !currentPassword ||
-                  !newPassword ||
-                  !confirmNewPassword ||
+                  isChangingPassword || !currentPassword || !newPassword || !confirmNewPassword ||
                   !(newPassHasMinLength && newPassHasUpperCase && newPassHasLowerCase && newPassHasNumber && newPassHasSpecialChar && newPasswordsMatch)
-              }
-
+                }
             >
                 {isChangingPassword ? <ActivityIndicator size="small" color="#fff" /> : (
-                    <View style={styles.modalButtonRowCenter}>
-                        <Icon name="save-outline" size={20} color="#fff" style={{ marginRight: 5 }} />
-                        <Text style={styles.buttonText}>Update Password</Text>
-                    </View>
+                    <>
+                        <Icon name="save-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+                        <Text style={styles.modalButtonText}>Update Password</Text>
+                    </>
                 )}
             </TouchableOpacity>
 
             <TouchableOpacity
-                style={[styles.modalButton, styles.closeButton, isChangingPassword && styles.buttonDisabled]}
+                style={[styles.modalButton, styles.modalSecondaryButton, isChangingPassword && styles.buttonDisabled]}
                 onPress={() => setShowChangePasswordModal(false)}
                 disabled={isChangingPassword}
             >
-                <View style={styles.modalButtonRowCenter}>
-                    <Icon name="close-circle-outline" size={22} style={[styles.modalButtonIcon, { color: '#fff' }]} />
-                    <Text style={styles.buttonText}>Cancel</Text>
-                </View>
+                <Text style={[styles.modalButtonText, {color: styles.themePalette.primary.color}]}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
        {/* Update Pet Details Modal */}
-       <Modal visible={showUpdatePetModal} transparent={true} animationType="fade" onRequestClose={() => !isSaving && setShowUpdatePetModal(false)}>
+       <Modal visible={showUpdatePetModal} transparent={true} animationType="fade" onRequestClose={() => {
+           if (!isSaving) {
+               setShowUpdatePetModal(false);
+               setShowSettingsModal(true);
+           }
+       }}>
          <View style={styles.modalOverlay}>
            <View style={styles.modalContent}>
+             <Icon name="create-outline" size={30} color={styles.themePalette.primary.color} style={{marginBottom: 10}} />
              <Text style={styles.modalTitle}>Update Pet Details</Text>
              <TextInput
-                style={styles.modalInput} placeholder="Pet Name" value={tempPetDetails.name} onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, name: text })}
+                style={styles.modalInput} placeholder="Pet Name"
+                placeholderTextColor={styles.themePalette.textMuted.color}
+                value={tempPetDetails.name} onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, name: text })}
                 autoCapitalize="words" maxLength={20} editable={!isSaving}
             />
             <Text style={styles.modalLabel}>Pet Type:</Text>
@@ -1174,29 +1209,42 @@ export default function PetFeeder() {
                     style={[ styles.petTypeButton, tempPetDetails.type === 'Dog' && styles.petTypeButtonSelected ]}
                     onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Dog' })} disabled={isSaving}
                 >
+                    <Icon name="logo-octocat" size={20} style={[styles.petTypeIcon, tempPetDetails.type === 'Dog' && styles.petTypeIconSelected]} />
                     <Text style={[ styles.petTypeButtonText, tempPetDetails.type === 'Dog' && styles.petTypeButtonTextSelected ]}>Dog</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                     style={[ styles.petTypeButton, tempPetDetails.type === 'Cat' && styles.petTypeButtonSelected ]}
                     onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Cat' })} disabled={isSaving}
                 >
+                     <Icon name="logo-gitlab" size={20} style={[styles.petTypeIcon, tempPetDetails.type === 'Cat' && styles.petTypeIconSelected]} />
                      <Text style={[ styles.petTypeButtonText, tempPetDetails.type === 'Cat' && styles.petTypeButtonTextSelected ]}>Cat</Text>
                 </TouchableOpacity>
             </View>
             <TextInput
-                style={styles.modalInput} placeholder="Pet Weight (kg)" keyboardType="decimal-pad" value={tempPetDetails.weight} onChangeText={handleTempWeightChange} editable={!isSaving}
+                style={styles.modalInput} placeholder="Pet Weight (kg)"
+                placeholderTextColor={styles.themePalette.textMuted.color}
+                keyboardType="decimal-pad" value={tempPetDetails.weight} onChangeText={handleTempWeightChange} editable={!isSaving}
              />
              <TouchableOpacity
-                style={[styles.modalButton, styles.saveButton, isSaving && styles.buttonDisabled]}
+                style={[styles.modalButton, styles.modalPrimaryButton, isSaving && styles.buttonDisabled]}
                 onPress={handleSaveChanges} disabled={isSaving}
               >
-                {isSaving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.buttonText}>Save Changes</Text>}
+                {isSaving ? <ActivityIndicator size="small" color="#fff" /> : (
+                    <>
+                      <Icon name="checkmark-circle-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+                      <Text style={styles.modalButtonText}>Save Changes</Text>
+                    </>
+                )}
              </TouchableOpacity>
              <TouchableOpacity
-                style={[styles.modalButton, styles.closeButton]}
-                onPress={() => setShowUpdatePetModal(false)} disabled={isSaving}
+                style={[styles.modalButton, styles.modalSecondaryButton]}
+                onPress={() => {
+                  setShowUpdatePetModal(false);
+                  setShowSettingsModal(true); 
+              }}
+                disabled={isSaving}
               >
-               <Text style={styles.buttonText}>Cancel</Text>
+               <Text style={[styles.modalButtonText, {color: styles.themePalette.primary.color}]}>Cancel</Text>
              </TouchableOpacity>
            </View>
          </View>
@@ -1206,430 +1254,473 @@ export default function PetFeeder() {
   );
 }
 
+const themeColors = {
+  primary: '#7B2CBF', // main purple (vibrant)
+  light: '#C77DFF',   // light  purple (for highlights, secondary elements)
+  accent: '#9D4EDD',  // accent pruple (alternative)
+  background: '#F7F4FA', // very light purple for screen background
+  cardBackground: '#FFFFFF',
+  textPrimary: '#2D2D2D',
+  textSecondary: '#5E5E5E',
+  textMuted: '#8D8D8D',
+  textOnPrimary: '#FFFFFF',
+  borderColor: '#E0E0E0', // light gray for borders
+  disabledBackground: '#E9D8FD', // muted purple
+  disabledText: '#A4A4A4',
+  success: '#28A745',
+  danger: '#DC3545',
+  warning: '#FFC107',
+  info: '#17A2B8',
+};
 
 const styles = StyleSheet.create({
+  themePalette: {
+    primary: { color: themeColors.primary },
+    light: { color: themeColors.light },
+    accent: { color: themeColors.accent },
+    success: { color: themeColors.success },
+    danger: { color: themeColors.danger },
+    warning: { color: themeColors.warning },
+    info: { color: themeColors.info },
+    textMuted: { color: themeColors.textMuted },
+  },
   scrollView: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: themeColors.background,
   },
   container: {
-    paddingBottom: 40,
-    alignItems: "center",
+    paddingBottom: 50,
     paddingHorizontal: 15,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f8f9fa",
+    backgroundColor: themeColors.background,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: themeColors.textSecondary,
   },
   headerContainer: {
-    width: '100%',
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "center",
     paddingVertical: 20,
-    marginTop: 30, 
-    position: 'relative',
+    paddingHorizontal: 5,
+    marginTop: 30,
+    marginBottom: 10,
+  },
+  headerIcon: {
+    marginRight: 10,
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "bold",
-    color: "#333",
-    // fontFamily: "Nunito", 
+    color: themeColors.primary,
+    flex: 1,
   },
-  settingsIcon: {
-    position: "absolute",
-    right: 15,
-    top: '50%',
-    transform: [{ translateY: -14 }], 
-    padding: 5, 
+  settingsButton: {
+    padding: 8, // tappable area(?)
   },
-  sectionContainer: {
-    width: '100%',
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 15,
+  sectionCard: {
+    backgroundColor: themeColors.cardBackground,
+    borderRadius: 12,
+    padding: 18,
+    marginBottom: 20,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: themeColors.borderColor,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 10,
-    color: '#555',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    paddingBottom: 5,
+    color: themeColors.textPrimary,
+    marginLeft: 10,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  detailIcon: {
+    color: themeColors.accent,
+    marginRight: 10,
   },
   infoText: {
     fontSize: 16,
-    marginBottom: 5,
-    color: "#444",
-    lineHeight: 22, 
+    color: themeColors.textSecondary,
+    lineHeight: 24,
+  },
+  infoTextLabel: {
+    fontSize: 16,
+    color: themeColors.textSecondary,
+    fontWeight: '500',
+  },
+  infoTextValue: {
+    fontSize: 16,
+    color: themeColors.textPrimary,
+    flexShrink: 1,
+  },
+  infoTextValueEmphasized: {
+    fontSize: 16,
+    color: themeColors.textPrimary,
+    fontWeight: 'bold',
   },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 5,
+    marginBottom: 10,
   },
   statusIndicator: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
     marginLeft: 8,
   },
   errorText: {
-    color: '#dc3545',
+    color: themeColors.danger,
     fontWeight: 'bold',
-    marginTop: 5,
   },
   feedingRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 15,
   },
   guideButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    backgroundColor: '#e9ecef', // Lighter gray
-    borderRadius: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: themeColors.background,
+    borderRadius: 20,
   },
   guideButtonText: {
     fontSize: 14,
-    color: '#495057', // darker gray text
-    fontWeight: 'bold',
+    color: themeColors.primary,
+    fontWeight: '600',
+    marginLeft: 5,
   },
   input: {
     width: "100%",
-    padding: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 15,
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: themeColors.borderColor,
     borderRadius: 8,
-    backgroundColor: "#fff",
-    marginBottom: 12,
+    backgroundColor: themeColors.cardBackground,
+    marginBottom: 15,
     fontSize: 16,
-    color: '#333', 
+    color: themeColors.textPrimary,
   },
   actionButton: {
-    paddingVertical: 12,
+    flexDirection: 'row',
+    paddingVertical: 14,
     paddingHorizontal: 20,
     borderRadius: 8,
     alignItems: "center",
+    justifyContent: 'center',
     marginBottom: 10,
     width: '100%',
   },
   feedNowButton: {
-     backgroundColor: "#28a745",
+     backgroundColor: themeColors.primary,
   },
   addTimeButton: {
-      backgroundColor: "#A06CD5", 
+      backgroundColor: themeColors.primary,
   },
   buttonText: {
-    color: "#fff",
+    color: themeColors.textOnPrimary,
     fontSize: 16,
     fontWeight: "bold",
-    textAlignVertical: 'center',
+    textAlign: 'center',
   },
   buttonDisabled: {
-    backgroundColor: "#ced4da", 
+    backgroundColor: themeColors.disabledBackground,
   },
   scheduleItem: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#f0e8f6",
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
-    width: '100%',
+    backgroundColor: themeColors.background,
+    padding: 15,
+    borderRadius: 10,
+    // marginBottom: 10, // replaced by itemseparatorcomponent
+  },
+  scheduleIcon: {
+    marginRight: 15,
   },
    scheduleInfo: {
      flex: 1,
-     marginRight: 10,
    },
    scheduleTime: {
-     fontSize: 16,
+     fontSize: 17,
      fontWeight: 'bold',
-     color: '#333',
+     color: themeColors.textPrimary,
    },
    scheduleWeight: {
-     fontSize: 14,
-     color: '#555',
+     fontSize: 15,
+     color: themeColors.textSecondary,
+     marginTop: 2,
    },
    scheduleControls: {
      flexDirection: 'row',
      alignItems: 'center',
    },
    deleteButton: {
-     marginLeft: 15,
-     padding: 5, 
+     marginLeft: 12,
+     padding: 8,
    },
-   noSchedulesText: {
+   emptyStateText: {
        textAlign: 'center',
-       color: '#888',
-       marginTop: 15,
-       fontSize: 15,
+       color: themeColors.textMuted,
+       marginTop: 20,
+       marginBottom: 10,
+       fontSize: 16,
        fontStyle: 'italic',
    },
-
-
+   listItemSeparator: {
+    height: 10, 
+    backgroundColor: 'transparent',
+   },
    modalOverlay: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: "rgba(0,0,0,0.65)",
   },
   modalContent: {
     width: "90%",
-    maxWidth: 400,
-    paddingVertical: 20,
-    paddingHorizontal: 20, 
-    backgroundColor: "#fff",
-    borderRadius: 12,
+    maxWidth: 380,
+    paddingVertical: 25,
+    paddingHorizontal: 20,
+    backgroundColor: themeColors.cardBackground,
+    borderRadius: 16,
     alignItems: "center",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "bold",
     marginBottom: 20,
-    color: '#333',
+    color: themeColors.textPrimary,
     textAlign: 'center',
   },
   modalSection: {
     width: '100%',
-    marginBottom: 15,
+    marginBottom: 20,
     borderTopWidth: 1,
-    borderTopColor: '#eee',
-    paddingTop: 15,
+    borderTopColor: themeColors.borderColor,
+    paddingTop: 20,
   },
-  modalSectionHeader: { 
-      fontSize: 16,
+  modalSectionHeader: {
+      fontSize: 17,
       fontWeight: 'bold',
-      color: '#555',
-      marginBottom: 10,
+      color: themeColors.primary,
+      marginBottom: 12,
       alignSelf: 'flex-start',
   },
-  modalText: { 
-     fontSize: 15,
-     marginBottom: 5,
-     color: '#444',
+  modalText: {
+     fontSize: 16,
+     marginBottom: 8,
+     color: themeColors.textSecondary,
      textAlign: 'left',
      width: '100%',
+     lineHeight: 22,
    },
-   modalNote: { 
-     fontSize: 13,
-     color: '#777',
-     marginTop: 10,
+   modalNote: {
+     fontSize: 14,
+     color: themeColors.textMuted,
+     marginTop: 15,
+     marginBottom: 10,
      fontStyle: 'italic',
      textAlign: 'center',
+     lineHeight: 20,
    },
-   modalNoteSmall: { 
-      fontSize: 12,
-      color: '#dc3545', 
-      marginTop: 5,
+   modalNoteSmall: {
+      fontSize: 13,
+      color: themeColors.danger,
+      marginTop: 8,
       textAlign: 'center',
       width: '100%',
   },
-   modalButton: { 
-    width: '100%',
-    paddingVertical: 12,
-    borderRadius: 8,
-    marginTop: 8,
-    borderWidth: 1, 
-    borderColor: 'transparent', 
-   },
-   modalButtonRow: { 
+  modalButton: {
     flexDirection: 'row',
+    width: '100%',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginTop: 10,
     alignItems: 'center',
-    paddingHorizontal: 15, 
-    justifyContent: 'flex-start', 
-   },
-   modalButtonRowCenter: { 
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center', 
-   },
-   modalButtonIcon: {
-    marginRight: 10, 
-    color: '#555',
+    justifyContent: 'center',
    },
    modalButtonText: {
-    color: '#333',
+    color: themeColors.textOnPrimary,
     fontSize: 16,
-    fontWeight: '500',
-   },
-
-   modalDeleteButton: { 
-    backgroundColor: '#f8d7da', 
-    borderColor: '#dc3545', 
-   },
-   modalDeleteButtonText: { 
-    color: '#dc3545',
     fontWeight: 'bold',
+    textAlign: 'center',
    },
-   saveButton: { 
-       backgroundColor: '#007bff', 
-       borderColor: '#007bff',
-       alignItems: 'center', 
+   modalPrimaryButton: {
+    backgroundColor: themeColors.primary,
    },
-   closeButton: { 
-     backgroundColor: "#6c757d", 
-     borderColor: '#6c757d',
-     marginTop: 15,
-     alignItems: 'center', 
+   modalSecondaryButton: {
+    backgroundColor: themeColors.cardBackground,
+    borderColor: themeColors.primary,
+    borderWidth: 1.5,
    },
-   modalInput: { 
+   modalCloseButton: { 
+    backgroundColor: themeColors.textSecondary, 
+   },
+   modalDeleteButton: {
+    backgroundColor: themeColors.danger,
+   },
+   modalInput: {
      width: '100%',
-     padding: 12,
+     paddingVertical: 12,
+     paddingHorizontal: 15,
      borderWidth: 1,
-     borderColor: '#ccc',
+     borderColor: themeColors.borderColor,
      borderRadius: 8,
-     marginBottom: 10,
+     marginBottom: 15, 
      fontSize: 16,
-     backgroundColor: '#fff', 
+     backgroundColor: themeColors.background, 
+     color: themeColors.textPrimary,
    },
-   modalLabel: { 
+   modalLabel: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#555',
-    marginBottom: 5,
+    fontWeight: '600',
+    color: themeColors.textSecondary,
+    marginBottom: 8,
     alignSelf: 'flex-start',
-    // marginLeft: '5%', 
   },
-
+  settingsMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    paddingVertical: 15,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: themeColors.borderColor,
+  },
+  settingsMenuItemIcon: {
+    color: themeColors.accent,
+    marginRight: 15,
+  },
+  settingsMenuItemText: {
+    flex: 1,
+    fontSize: 17,
+    color: themeColors.textPrimary,
+  },
+  settingsMenuChevron: {
+    color: themeColors.textMuted,
+  },
+  accountEmailContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    backgroundColor: themeColors.background,
+    borderRadius: 8,
+  },
+  accountEmailIcon: {
+    color: themeColors.accent,
+    marginRight: 10,
+  },
+  verificationWarningText: {
+    color: themeColors.warning,
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+  },
   petTypeSelectionContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-evenly', 
+    justifyContent: 'space-around',
     width: '100%',
-    marginBottom: 15,
+    marginBottom: 20,
   },
   petTypeButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 30, 
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#A06CD5',
-    backgroundColor: '#f8f9fa', 
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 25,
+    borderWidth: 1.5,
+    borderColor: themeColors.light,
+    backgroundColor: themeColors.cardBackground,
   },
   petTypeButtonSelected: {
-    backgroundColor: '#B185DB', 
-    borderColor: '#A06CD5',
+    backgroundColor: themeColors.primary,
+    borderColor: themeColors.primary,
+  },
+  petTypeIcon: {
+    marginRight: 8,
+    color: themeColors.light,
+  },
+  petTypeIconSelected: {
+    color: themeColors.textOnPrimary,
   },
   petTypeButtonText: {
     fontSize: 16,
-    color: '#A06CD5',
-    fontWeight: 'bold',
+    color: themeColors.light,
+    fontWeight: '600',
   },
   petTypeButtonTextSelected: {
-    color: '#fff',
-  },
-
-  noHistoryText: {
-    textAlign: 'center',
-    color: '#888',
-    marginTop: 15,
-    fontSize: 15,
-    fontStyle: 'italic',
+    color: themeColors.textOnPrimary,
   },
   historyItem: {
       flexDirection: 'row',
-      justifyContent: 'space-between',
       alignItems: 'center',
-      paddingVertical: 10,
+      paddingVertical: 12,
+      paddingHorizontal: 5, 
+      // marginBottom: 10, // replaced by itemseparator
+      backgroundColor: themeColors.cardBackground, 
+      borderRadius: 8, // optional: round corners for history items if not using card BG
+  },
+  historyIcon: {
+    marginRight: 15,
   },
   historyInfo: {
       flex: 1,
-      marginRight: 10,
   },
   historyTimestamp: {
-      fontSize: 14,
-      color: '#555',
+      fontSize: 15,
+      color: themeColors.textPrimary,
       fontWeight: 'bold',
+      marginBottom: 2,
   },
   historyDetails: {
-      fontSize: 13,
-      color: '#666',
+      fontSize: 14,
+      color: themeColors.textSecondary,
   },
-  historyType: {
-      fontSize: 12,
-      fontWeight: 'bold',
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: 4,
-      overflow: 'hidden', 
-      textAlign: 'center', 
-      minWidth: 70,
-  },
-  historyTypeManual: {
-      backgroundColor: '#d1e7dd', // lighter green
-      color: '#0f5132', // darker green text
-      // borderColor: '#badbcc', // border
-      // borderWidth: 1,
-  },
-  historyTypeScheduled: {
-      backgroundColor: '#cfe2ff', // lighter blue
-      color: '#052c65', // darker blue text
-      // borderColor: '#b6d4fe', 
-      // borderWidth: 1,
-  },
-  historySeparator: {
-      height: 1,
-      backgroundColor: '#eee',
-      width: '100%',
-      marginVertical: 2, 
-  },
-
-  changePasswordTriggerButton: {
-    backgroundColor: '#f0e8f6',
-    borderColor: '#A06CD5',
-    borderWidth: 1,
-  },
-  changePasswordTriggerButtonIconText: {
-    color: '#A06CD5',
-  },
-
-  updatePasswordButton: {
-    backgroundColor: '#A06CD5',
-    borderColor: '#A06CD5',
-  },
-
-  modalSectionNoBorder: {
-    width: '100%',
-    marginBottom: 15,
-    // paddingTop: 15,
-  },
-
-
   passwordChecklistContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-around', 
+    width: '100%',
     marginTop: 5,
-    marginBottom: 10,
-    paddingHorizontal: 5, 
+    marginBottom: 15,
+    paddingHorizontal: 5,
   },
   passwordChecklistItem: {
-    fontSize: 12,         
-    marginRight: 8,    
-    marginBottom: 3, 
-    alignItems: 'center', 
+    flexDirection: 'row',
+    alignItems: 'center',
+    fontSize: 13,
+    marginBottom: 4,
   },
   validCheck: {
-    color: '#28a745',
+    color: themeColors.success,
   },
   invalidCheck: {
-    color: '#dc3545', 
+    color: themeColors.danger,
   },
-
 });

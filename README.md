@@ -15,6 +15,6 @@
 
 ## Current Version
 
-v7 - add change password in petfeeder/index with password validation
+v8 - petfeeder/index UI OVERHAUL
 
 (Note: Current readme is temporary)
