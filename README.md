@@ -15,6 +15,8 @@
 
 ## Current Version
 
+v8.2 - added captcha in register
+
 v8.1 - added password checklist in change password and edited eye button in password fields
 
 v8 - petfeeder/index UI OVERHAUL
