@@ -77,7 +77,7 @@ export default function Register() {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
       await sendEmailVerification(userCredential.user);
-      // await auth.signOut(); // Optional: sign out immediately
+      await auth.signOut(); 
 
       Alert.alert(
         "Verify Your Email",

@@ -50,8 +50,8 @@ export default function Confirm() {
       <Text style={styles.title}>Confirm Your Pet's Details</Text>
 
       {/* Ensure petType is shown correctly */}
-      <Text style={styles.info}>Pet Type: {petType ? petType : "Not Provided"}</Text>
       <Text style={styles.info}>Pet Name: {petName ? petName : "Not Provided"}</Text>
+      <Text style={styles.info}>Pet Type: {petType ? petType : "Not Provided"}</Text>
       <Text style={styles.info}>Pet Weight: {petWeight ? petWeight : "Not Provided"} kg</Text>
 
       <TouchableOpacity style={styles.confirmButton} onPress={handleConfirm}>
