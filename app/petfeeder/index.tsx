@@ -1,14 +1,14 @@
 // UPDATED PETFEEDER UI
 // Changes made by me (Ryan):
 
-// v7:
-// added change password with password validation
-
 // v8:
 // PETFEEDER UI OVERHAUL
 
 // v8.1:
 // add password checklist in change password & show eye button
+
+// v9:
+// add manual setting of food level
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
@@ -93,6 +93,16 @@ export default function PetFeeder() {
   const [feedingHistory, setFeedingHistory] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
 
+  const [currentFoodLevel, setCurrentFoodLevel] = useState(0);
+  const [hopperCapacity, setHopperCapacity] = useState(1000);
+  const [showUpdateFoodLevelModal, setShowUpdateFoodLevelModal] = useState(false);
+  const [tempInputFoodLevel, setTempInputFoodLevel] = useState('');
+  const [tempInputHopperCapacity, setTempInputHopperCapacity] = useState('');
+  const lastProcessedFeedTimestampRef = useRef(null);
+  const foodConfigListenerUnsubscribe = useRef(null);
+
+  const [gramsToAdd, setGramsToAdd] = useState('');
+
   const statusListenerUnsubscribe = useRef(null);
   const schedulesListenerUnsubscribe = useRef(null);
   const historyListenerUnsubscribe = useRef(null);
@@ -113,45 +123,54 @@ export default function PetFeeder() {
     return "500";
   }, []);
 
-   useEffect(() => {
+
+
+useEffect(() => {
     if (!user) {
         console.log("useEffect: No user found, skipping listener attachment.");
         setIsLoading(false);
         setIsLoadingHistory(false);
-         if (statusListenerUnsubscribe.current) { statusListenerUnsubscribe.current(); statusListenerUnsubscribe.current = null; }
-         if (schedulesListenerUnsubscribe.current) { schedulesListenerUnsubscribe.current(); schedulesListenerUnsubscribe.current = null; }
-         if (historyListenerUnsubscribe.current) { historyListenerUnsubscribe.current(); historyListenerUnsubscribe.current = null; }
+        if (statusListenerUnsubscribe.current) { statusListenerUnsubscribe.current(); statusListenerUnsubscribe.current = null; }
+        if (schedulesListenerUnsubscribe.current) { schedulesListenerUnsubscribe.current(); schedulesListenerUnsubscribe.current = null; }
+        if (historyListenerUnsubscribe.current) { historyListenerUnsubscribe.current(); historyListenerUnsubscribe.current = null; }
+        if (foodConfigListenerUnsubscribe.current) { foodConfigListenerUnsubscribe.current(); foodConfigListenerUnsubscribe.current = null; }
+        lastProcessedFeedTimestampRef.current = null;
         return;
     }
 
-    console.log(`useEffect: Setting up for user ${user.uid}`);
-
+    console.log(`%cuseEffect: RUNNING for user ${user.uid}. Current foodLevel in state: ${currentFoodLevel}`, 'color: blue; font-weight: bold;');
     setIsLoading(true);
     setIsLoadingHistory(true);
+
     let initialBaseDataFetched = false;
-    let statusListenerAttached = false;
-    let schedulesListenerAttached = false;
-    let historyListenerAttached = false;
+    let statusListenerReady = false;
+    let schedulesListenerReady = false;
+    let historyListenerReady = false;
+    let foodConfigListenerReady = false;
 
     const userBaseRef = ref(db, `users/${user.uid}`);
-    const statusRef = ref(db, `users/${user.uid}/feederStatus`);
-    const schedulesRef = ref(db, `users/${user.uid}/schedules`);
-    const historyRef = query(
+    const statusRefPath = `users/${user.uid}/feederStatus`;
+    const schedulesRefPath = `users/${user.uid}/schedules`;
+    const historyQuery = query(
         ref(db, `users/${user.uid}/feedingHistory`),
         orderByKey(),
         limitToLast(20)
     );
+    const foodConfigRefPath = `users/${user.uid}/feederConfig`;
 
     const checkAllLoaded = () => {
-         if (initialBaseDataFetched && statusListenerAttached && schedulesListenerAttached && historyListenerAttached) {
-            console.log("useEffect: All data and listeners ready, setting loading false.");
+        console.log(`%cuseEffect: checkAllLoaded: Base=${initialBaseDataFetched}, Status=${statusListenerReady}, Schedules=${schedulesListenerReady}, History=${historyListenerReady}, FoodConfig=${foodConfigListenerReady}`, 'color: gray');
+        if (initialBaseDataFetched && statusListenerReady && schedulesListenerReady && historyListenerReady && foodConfigListenerReady) {
+            console.log("%cuseEffect: All data and listeners ready, setting loading false.", 'color: green; font-weight: bold;');
             setIsLoading(false);
-            setIsLoadingHistory(false);
+            // setIsLoadingHistory(false)
+        } else {
+            // console.log("useEffect: Not all data/listeners ready yet.");
         }
-    }
+    };
 
     get(userBaseRef).then((snapshot) => {
-        console.log("useEffect: Initial base data received.");
+        console.log("useEffect: Initial base data (pet details) received.");
         if (snapshot.exists()) {
             const data = snapshot.val();
             setPetName(data.petName || "Unknown");
@@ -161,116 +180,171 @@ export default function PetFeeder() {
             setRecommendedWeight(recWeight);
             if (!manualWeight) { setManualWeight(recWeight !== "N/A" ? recWeight : "100"); }
         } else {
-            console.warn(`useEffect: No base data found for user ${user.uid}.`);
-            setPetName("N/A");
-            setPetType("N/A");
-            setPetWeight("");
-            setRecommendedWeight("N/A");
+            console.warn(`useEffect: No base data found for user ${user.uid}. Setting defaults.`);
+            setPetName("N/A"); setPetType("N/A"); setPetWeight(""); setRecommendedWeight("N/A");
             if (!manualWeight) setManualWeight("100");
         }
-        initialBaseDataFetched = true;
-        checkAllLoaded();
+        if (!initialBaseDataFetched) {
+            initialBaseDataFetched = true;
+            console.log("useEffect: BaseData FETCHED & Processed.");
+            checkAllLoaded();
+        }
     }).catch(error => {
         console.error("useEffect: Error fetching initial pet data:", error);
         Alert.alert("Error", "Could not fetch pet details.");
-        setIsLoading(false); setIsLoadingHistory(false);
+        if (!initialBaseDataFetched) {
+            initialBaseDataFetched = true;
+            console.log("useEffect: BaseData ERRORED but marked as fetched for loading.");
+            checkAllLoaded();
+        }
     });
 
-    console.log(`useEffect: Attaching status listener for ${user.uid}`);
-    statusListenerUnsubscribe.current = onValue(statusRef, (snapshot) => {
-        console.log("useEffect: Feeder status data received.");
+    console.log(`useEffect: Attaching food config listener to ${foodConfigRefPath}`);
+    foodConfigListenerUnsubscribe.current = onValue(ref(db, foodConfigRefPath), (snapshot) => {
+        console.log("useEffect: Food config data received from Firebase.");
+        if (snapshot.exists()) {
+            const configData = snapshot.val();
+            // console.log("Food config snapshot data:", configData);
+            setCurrentFoodLevel(configData.currentFoodLevel !== undefined ? configData.currentFoodLevel : 0);
+            setHopperCapacity(configData.hopperCapacity !== undefined ? configData.hopperCapacity : 1000);
+        } else {
+            console.log("useEffect: No food config data in Firebase, using local defaults & attempting to set in Firebase.");
+            setCurrentFoodLevel(0);
+            setHopperCapacity(1000);
+
+            // set(ref(db, foodConfigRefPath), { currentFoodLevel: 0, hopperCapacity: 1000 })
+            //     .then(() => console.log("Initial food config set in Firebase (was missing)."))
+            //     .catch(err => console.warn("Failed to set initial food config in Firebase:", err));
+        }
+        if (!foodConfigListenerReady) {
+            foodConfigListenerReady = true;
+            console.log("useEffect: FoodConfigListener READY.");
+            checkAllLoaded();
+        }
+    }, (error) => {
+        console.error(`useEffect: Error listening to food config at ${foodConfigRefPath}:`, error);
+        // Alert.alert("Error", "Could not load food hopper settings.");
+        setCurrentFoodLevel(0); setHopperCapacity(1000);
+        if (!foodConfigListenerReady) {
+            foodConfigListenerReady = true;
+            console.log("useEffect: FoodConfigListener ERRORED but marked READY.");
+            checkAllLoaded();
+        }
+    });
+
+    console.log(`useEffect: Attaching status listener to ${statusRefPath}`);
+    statusListenerUnsubscribe.current = onValue(ref(db, statusRefPath), (snapshot) => {
+        console.log("useEffect: Feeder status data received from Firebase.");
         if (snapshot.exists()) {
             const statusData = snapshot.val();
+            // console.log("Feeder status snapshot data:", statusData);
             setFeederOnline(statusData.isOnline || false);
-            setFoodLevelStatus(statusData.foodLevel || "Unknown");
             setFeederError(statusData.error || "None");
-            if (statusData.lastFeedTimestamp) {
-                const date = new Date(statusData.lastFeedTimestamp);
-                const amount = statusData.lastFeedAmount || 'N/A';
-                 if (!isNaN(date.getTime())) {
-                    setLastFeedInfo(`${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${amount}g)`);
-                } else {
-                    console.warn("useEffect: Invalid lastFeedTimestamp received:", statusData.lastFeedTimestamp);
-                    setLastFeedInfo("Invalid Date");
-                }
-            } else {
-                setLastFeedInfo("N/A");
+
+            const lastFeedTimestamp = statusData.lastFeedTimestamp;
+            const lastFeedAmountStr = statusData.lastFeedAmount;
+
+            if (lastProcessedFeedTimestampRef.current === null && lastFeedTimestamp && !statusListenerReady) {
+                // console.log(`%cStatusListener: Initializing lastProcessedFeedTimestampRef.current to ${lastFeedTimestamp} (from first data load this cycle). No deduction will occur for this timestamp.`, 'color: purple');
+                lastProcessedFeedTimestampRef.current = lastFeedTimestamp;
+            }
+
+            if (lastFeedTimestamp && lastFeedAmountStr) {
+                const date = new Date(lastFeedTimestamp);
+                const amountForDisplay = lastFeedAmountStr || 'N/A';
+                if (!isNaN(date.getTime())) {
+                    setLastFeedInfo(`${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${amountForDisplay}g)`);
+                    if (lastProcessedFeedTimestampRef.current !== lastFeedTimestamp) {
+                        const amountDispensed = parseFloat(lastFeedAmountStr);
+                        if (!isNaN(amountDispensed) && amountDispensed > 0) {
+                            const newCalculatedLevel = Math.max(0, currentFoodLevel - amountDispensed);
+                            console.log(`Food DEDUCTION: In-memory foodLevel: ${currentFoodLevel}g, Dispensed by ESP: ${amountDispensed}g, New calculated: ${newCalculatedLevel}g. ESP Timestamp: ${lastFeedTimestamp}`);
+
+                            update(ref(db, foodConfigRefPath), { currentFoodLevel: newCalculatedLevel })
+                                .then(() => {
+                                    console.log(`Firebase foodLevel updated to ${newCalculatedLevel}g. Marking timestamp ${lastFeedTimestamp} as processed.`);
+                                    lastProcessedFeedTimestampRef.current = lastFeedTimestamp;
+                                })
+                                .catch(error => {
+                                    console.error("CRITICAL: Failed to update food level in Firebase after deduction:", error);
+                                    Alert.alert("Food Level Sync Error", "Failed to update food level after feed. It may be inaccurate.");
+                                });
+                        } else { /* console.warn("Invalid amountDispensed from ESP for deduction:", lastFeedAmountStr); */ }
+                    } else { /* console.log("Feed event timestamp " + lastFeedTimestamp + " already processed or no change."); */ }
+                } else { setLastFeedInfo("Invalid Date"); console.warn("Invalid lastFeedTimestamp:", statusData.lastFeedTimestamp); }
+            } else { setLastFeedInfo("N/A"); }
+
+            if (lastProcessedFeedTimestampRef.current === null && statusData.lastFeedTimestamp) {
+                console.log("Initializing lastProcessedFeedTimestampRef.current to (on first status load):", statusData.lastFeedTimestamp);
+                lastProcessedFeedTimestampRef.current = statusData.lastFeedTimestamp;
             }
         } else {
-            console.log("useEffect: No feeder status data found, resetting state.");
-            setFeederOnline(false);
-            setFoodLevelStatus("Unknown");
-            setFeederError("None");
-            setLastFeedInfo("N/A");
+            console.log("useEffect: No feeder status data in Firebase. Resetting status states.");
+            setFeederOnline(false); setFeederError("None"); setLastFeedInfo("N/A");
         }
-        statusListenerAttached = true;
-        checkAllLoaded();
+        if (!statusListenerReady) {
+            statusListenerReady = true;
+            console.log("useEffect: StatusListener READY.");
+            checkAllLoaded();
+        }
     }, (error) => {
-        console.error("useEffect: Error listening to feeder status:", error);
-        if (error.code !== 'PERMISSION_DENIED') { Alert.alert("Error", "Could not load feeder status."); }
-        setIsLoading(false); setIsLoadingHistory(false);
+        console.error(`useEffect: Error listening to feeder status at ${statusRefPath}:`, error);
+        if (!statusListenerReady) {
+            statusListenerReady = true;
+            console.log("useEffect: StatusListener ERRORED but marked READY.");
+            checkAllLoaded();
+        }
     });
 
-    console.log(`useEffect: Attaching schedules listener for ${user.uid}`);
-    schedulesListenerUnsubscribe.current = onValue(schedulesRef, (snapshot) => {
-        console.log("useEffect: Schedules data received.");
+    console.log(`useEffect: Attaching schedules listener to ${schedulesRefPath}`);
+    schedulesListenerUnsubscribe.current = onValue(ref(db, schedulesRefPath), (snapshot) => {
+        // console.log("useEffect: Schedules data received.");
         const schedulesData = snapshot.val();
-        let schedulesArray = [];
-        if (typeof schedulesData === 'object' && schedulesData !== null) { schedulesArray = Object.values(schedulesData); }
-        else if (Array.isArray(schedulesData)) { schedulesArray = schedulesData; }
-        setSchedules(schedulesArray);
-        schedulesListenerAttached = true;
-        checkAllLoaded();
+        setSchedules(Array.isArray(schedulesData) ? schedulesData : (schedulesData ? Object.values(schedulesData) : []));
+        if (!schedulesListenerReady) {
+            schedulesListenerReady = true;
+            console.log("useEffect: SchedulesListener READY.");
+            checkAllLoaded();
+        }
     }, (error) => {
-        console.error("useEffect: Error listening to schedules:", error);
-        if (error.code !== 'PERMISSION_DENIED') { Alert.alert("Error", "Could not load schedules."); }
-        setIsLoading(false); setIsLoadingHistory(false);
+        console.error(`useEffect: Error listening to schedules at ${schedulesRefPath}:`, error);
+        if (!schedulesListenerReady) {
+            schedulesListenerReady = true;
+            console.log("useEffect: SchedulesListener ERRORED but marked READY.");
+            checkAllLoaded();
+        }
     });
 
-    console.log(`useEffect: Attaching history listener for ${user.uid}`);
-    historyListenerUnsubscribe.current = onValue(historyRef, (snapshot) => {
-        console.log("useEffect: Feeding history data received.");
+    console.log(`useEffect: Attaching history listener.`);
+    historyListenerUnsubscribe.current = onValue(historyQuery, (snapshot) => {
+        // console.log("useEffect: Feeding history data received.");
         const historyData = snapshot.val();
-        let historyArray = [];
-        if (historyData) {
-            historyArray = Object.keys(historyData).map(key => ({
-                id: key,
-                timestamp: parseInt(key, 10),
-                ...historyData[key]
-            })).filter(item => !isNaN(item.timestamp));
-            historyArray.sort((a, b) => b.timestamp - a.timestamp);
-        }
+        const historyArray = historyData ? Object.keys(historyData).map(key => ({ id: key, timestamp: parseInt(key, 10), ...historyData[key] })).filter(item => !isNaN(item.timestamp)).sort((a, b) => b.timestamp - a.timestamp) : [];
         setFeedingHistory(historyArray);
-        historyListenerAttached = true;
-        checkAllLoaded();
+        setIsLoadingHistory(false); 
+        if (!historyListenerReady) {
+            historyListenerReady = true;
+            console.log("useEffect: HistoryListener READY.");
+            checkAllLoaded();
+        }
     }, (error) => {
         console.error("useEffect: Error listening to feeding history:", error);
-        if (error.code !== 'PERMISSION_DENIED') { Alert.alert("Error", "Could not load feeding history."); }
-        setIsLoading(false); setIsLoadingHistory(false);
+        setIsLoadingHistory(false);
+        if (!historyListenerReady) {
+            historyListenerReady = true;
+            console.log("useEffect: HistoryListener ERRORED but marked READY.");
+            checkAllLoaded();
+        }
     });
 
     return () => {
-        console.log(`useEffect: Running cleanup for PetFeeder (User: ${user?.uid})`);
-        if (statusListenerUnsubscribe.current) {
-            console.log("useEffect cleanup: Detaching status listener.");
-            try { statusListenerUnsubscribe.current(); } catch(e) { console.error("Cleanup detach status error:", e); }
-            statusListenerUnsubscribe.current = null;
-        }
-
-        if (schedulesListenerUnsubscribe.current) {
-            console.log("useEffect cleanup: Detaching schedules listener.");
-            try { schedulesListenerUnsubscribe.current(); } catch(e) { console.error("Cleanup detach schedules error:", e); }
-            schedulesListenerUnsubscribe.current = null;
-        }
-
-        if (historyListenerUnsubscribe.current) {
-            console.log("useEffect cleanup: Detaching history listener.");
-            try { historyListenerUnsubscribe.current(); } catch(e) { console.error("Cleanup detach history error:", e); }
-            historyListenerUnsubscribe.current = null;
-        }
+        console.log(`%cuseEffect: CLEANUP for user ${user?.uid}. Detaching listeners.`, 'color: orange;');
+        if (statusListenerUnsubscribe.current) { statusListenerUnsubscribe.current(); statusListenerUnsubscribe.current = null; }
+        if (schedulesListenerUnsubscribe.current) { schedulesListenerUnsubscribe.current(); schedulesListenerUnsubscribe.current = null; }
+        if (historyListenerUnsubscribe.current) { historyListenerUnsubscribe.current(); historyListenerUnsubscribe.current = null; }
+        if (foodConfigListenerUnsubscribe.current) { foodConfigListenerUnsubscribe.current(); foodConfigListenerUnsubscribe.current = null; }
     };
-
-  }, [user, db, calculateRecommendedWeight]);
+}, [user, db, calculateRecommendedWeight, currentFoodLevel]);
 
   const handleAddFeedingTime = () => {
     if (!manualWeight || isNaN(parseInt(manualWeight)) || parseInt(manualWeight) <= 0) {
@@ -319,31 +393,53 @@ export default function PetFeeder() {
      setSelectedTime(new Date());
   };
 
-  const toggleSchedule = async (id) => {
+ const toggleSchedule = async (id, scheduledAmount) => {
+  const scheduleIndex = schedules.findIndex((item) => item.id === id);
+  if (scheduleIndex === -1) return;
+
+  const scheduleToUpdate = schedules[scheduleIndex];
+  const newIsOnState = !scheduleToUpdate.isOn;
+
+  if (newIsOnState && scheduledAmount > currentFoodLevel) {
+      Alert.alert(
+          "Low Food",
+          `There isn't enough food (${currentFoodLevel}g) in the hopper for this ${scheduledAmount}g schedule. Please refill or adjust the schedule. Turn on anyway?`,
+          [
+              { text: "Cancel", style: "cancel" },
+              { text: "Turn On Anyway", onPress: () => proceedWithToggle(id, newIsOnState) }
+          ]
+      );
+      return;
+  }
+  proceedWithToggle(id, newIsOnState);
+};
+
+const proceedWithToggle = async (id, newIsOnState) => {
     const scheduleIndex = schedules.findIndex((item) => item.id === id);
     if (scheduleIndex === -1) return;
 
     const scheduleToUpdate = schedules[scheduleIndex];
-    const updatedSchedule = { ...scheduleToUpdate, isOn: !scheduleToUpdate.isOn };
+    const updatedSchedule = { ...scheduleToUpdate, isOn: newIsOnState };
 
-    const updatedSchedules = [...schedules];
-    updatedSchedules[scheduleIndex] = updatedSchedule;
-    setSchedules(updatedSchedules);
+    const originalSchedules = [...schedules];
+    const updatedSchedulesList = [...schedules];
+    updatedSchedulesList[scheduleIndex] = updatedSchedule;
+    setSchedules(updatedSchedulesList);
 
     setIsSaving(true);
     if (user) {
-      const scheduleRef = ref(db, `users/${user.uid}/schedules/${id}`);
-      try {
-        await update(scheduleRef, { isOn: updatedSchedule.isOn });
-      } catch (error) {
-        console.error("Error updating schedule toggle:", error);
-        Alert.alert("Error", "Failed to update schedule status.");
-        setSchedules(schedules);
-      } finally {
-        setIsSaving(false);
-      }
+        const scheduleRef = ref(db, `users/${user.uid}/schedules/${id}`);
+        try {
+            await update(scheduleRef, { isOn: updatedSchedule.isOn });
+        } catch (error) {
+            console.error("Error updating schedule toggle:", error);
+            Alert.alert("Error", "Failed to update schedule status.");
+            setSchedules(originalSchedules);
+        } finally {
+            setIsSaving(false);
+        }
     }
-  };
+};
 
   const deleteSchedule = async (id) => {
     Alert.alert(
@@ -744,6 +840,80 @@ export default function PetFeeder() {
     }
   };
 
+  const openUpdateFoodLevelModal = () => {
+    setTempInputFoodLevel(currentFoodLevel.toString());
+    setTempInputHopperCapacity(hopperCapacity.toString());
+    setShowUpdateFoodLevelModal(true);
+  };
+
+  const handleSaveFoodLevel = async () => {
+    if (!user) {
+        Alert.alert("Error", "User not logged in.");
+        return;
+    }
+    const newCurrentLevel = parseInt(tempInputFoodLevel, 10);
+    const newHopperCapacity = parseInt(tempInputHopperCapacity, 10);
+
+    if (isNaN(newCurrentLevel) || newCurrentLevel < 0) {
+        Alert.alert("Invalid Input", "Current food level must be a non-negative number.");
+        return;
+    }
+    if (isNaN(newHopperCapacity) || newHopperCapacity <= 0) {
+        Alert.alert("Invalid Input", "Hopper capacity must be a positive number.");
+        return;
+    }
+    if (newCurrentLevel > newHopperCapacity) {
+        Alert.alert("Invalid Input", "Current food level cannot exceed hopper capacity.");
+        return;
+    }
+
+    setIsSaving(true);
+    const foodConfigUpdates = {
+        currentFoodLevel: newCurrentLevel,
+        hopperCapacity: newHopperCapacity,
+    };
+    const foodConfigPath = `users/${user.uid}/feederConfig`;
+
+    try {
+        await update(ref(db, foodConfigPath), foodConfigUpdates);
+        setShowUpdateFoodLevelModal(false);
+        Alert.alert("Success", "Food level and capacity updated.");
+    } catch (error) {
+        console.error("Error updating food level/capacity:", error);
+        Alert.alert("Error", "Failed to update food level. Please try again.");
+    } finally {
+        setIsSaving(false);
+    }
+  };
+
+  const handleAddGramsToHopper = () => {
+    const toAdd = parseInt(gramsToAdd, 10);
+    if (isNaN(toAdd) || toAdd <= 0) {
+      Alert.alert("Invalid Amount", "Please enter a positive number of grams to add.");
+      setGramsToAdd('');
+      return;
+    }
+
+    const currentTempLevel = parseInt(tempInputFoodLevel, 10) || 0; 
+    const capacity = parseInt(tempInputHopperCapacity, 10) || 0; 
+
+    if (capacity <= 0) {
+        Alert.alert("Set Capacity", "Please set a valid hopper capacity first.");
+        return;
+    }
+
+    let newLevel = currentTempLevel + toAdd;
+    if (newLevel > capacity) {
+      newLevel = capacity;
+      Alert.alert("Hopper Full", `Food level capped at ${capacity}g capacity.`);
+    }
+
+    setTempInputFoodLevel(newLevel.toString());
+    setGramsToAdd('');
+  };
+
+
+
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -796,10 +966,17 @@ export default function PetFeeder() {
             <View style={[styles.statusIndicator, { backgroundColor: feederOnline ? styles.themePalette.success.color : styles.themePalette.danger.color }]} />
             <Text style={[styles.infoTextValue, { marginLeft: 8, fontWeight: 'bold', color: feederOnline ? styles.themePalette.success.color : styles.themePalette.danger.color }]}>{feederOnline ? 'Online' : 'Offline'}</Text>
          </View>
-         <View style={styles.detailRow}>
+        <View style={[styles.detailRow, { alignItems: 'center' }]}>
             <Icon name="cube-outline" size={20} style={styles.detailIcon} />
-            <Text style={styles.infoTextLabel}>Food Level: </Text><Text style={styles.infoTextValue}>{foodLevelStatus}</Text>
-         </View>
+            <Text style={styles.infoTextLabel}>Food Level: </Text>
+            <Text style={styles.infoTextValue}>
+                {currentFoodLevel}g / {hopperCapacity}g
+                {hopperCapacity > 0 && ` (${Math.round((currentFoodLevel / hopperCapacity) * 100)}%)`}
+            </Text>
+            <TouchableOpacity onPress={openUpdateFoodLevelModal} style={{ marginLeft: 'auto', paddingVertical: 2, paddingHorizontal: 8 }}>
+                <Icon name="pencil-outline" size={20} color={styles.themePalette.primary.color} />
+            </TouchableOpacity>
+        </View>
          <View style={styles.detailRow}>
             <Icon name="time-outline" size={20} style={styles.detailIcon} />
             <Text style={styles.infoTextLabel}>Last Feed: </Text><Text style={styles.infoTextValue}>{lastFeedInfo}</Text>
@@ -840,17 +1017,31 @@ export default function PetFeeder() {
             style={[
               styles.actionButton,
               styles.feedNowButton,
-              (isFeeding || !feederOnline) && styles.buttonDisabled
+              (
+                isFeeding ||
+                !feederOnline ||
+                (parseInt(manualWeight, 10) || 0) === 0 ||
+                (parseInt(manualWeight, 10) || 0) > currentFoodLevel
+              ) && styles.buttonDisabled
             ]}
             onPress={handleFeedNow}
-            disabled={isFeeding || !feederOnline}
+            disabled={
+              isFeeding ||
+              !feederOnline ||
+              (parseInt(manualWeight, 10) || 0) === 0 ||
+              (parseInt(manualWeight, 10) || 0) > currentFoodLevel
+            }
         >
             {isFeeding ? (
                 <ActivityIndicator size="small" color="#fff" />
             ) : (
                 <>
                   <Icon name="play-circle-outline" size={20} color="#fff" style={{ marginRight: 8 }}/>
-                  <Text style={styles.buttonText}>Feed Now ({manualWeight || 'N/A'}g)</Text>
+                  <Text style={styles.buttonText}>
+                    Feed Now ({manualWeight || '0'}g)
+                    {/* optional: show warning if low food for this amount */}
+                    {(parseInt(manualWeight, 10) || 0) > 0 && (parseInt(manualWeight, 10) || 0) > currentFoodLevel && " (Low Food!)"}
+                  </Text>
                 </>
             )}
         </TouchableOpacity>
@@ -901,32 +1092,42 @@ export default function PetFeeder() {
                 return timeA - timeB;
               })}
               keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-              <View style={styles.scheduleItem}>
-                  <Icon name="alarm-outline" size={24} color={styles.themePalette.primary.color} style={styles.scheduleIcon} />
-                  <View style={styles.scheduleInfo}>
-                      <Text style={styles.scheduleTime}>{item.time}</Text>
-                      <Text style={styles.scheduleWeight}>{item.weight}g</Text>
-                  </View>
-                  <View style={styles.scheduleControls}>
-                      <Switch
-                          trackColor={{ false: "#D1C4E9", true: styles.themePalette.light.color }}
-                          thumbColor={item.isOn ? styles.themePalette.primary.color : "#f4f3f4"}
-                          ios_backgroundColor="#E0E0E0"
-                          onValueChange={() => toggleSchedule(item.id)}
-                          value={item.isOn}
-                          disabled={isSaving}
-                          style={{ transform: [{ scaleX: .9 }, { scaleY: .9 }] }}
-                      />
-                      <TouchableOpacity onPress={() => deleteSchedule(item.id)} style={styles.deleteButton} disabled={isSaving}>
-                          <Icon name="trash-bin-outline" size={22} color={isSaving ? styles.themePalette.textMuted.color : styles.themePalette.danger.color} />
-                      </TouchableOpacity>
-                  </View>
-              </View>
-              )}
-              scrollEnabled={false}
-              ItemSeparatorComponent={() => <View style={styles.listItemSeparator} />}
-            />
+
+              renderItem={({ item }) => {
+              const scheduledAmount = parseInt(item.weight, 10) || 0;
+              const hasEnoughFood = currentFoodLevel >= scheduledAmount;
+              const lowFoodWarningColor = themeColors.warningMutedPurple;
+
+              return (
+                <View style={styles.scheduleItem}>
+                    <Icon name="alarm-outline" size={24} color={hasEnoughFood ? themeColors.primary : lowFoodWarningColor} style={styles.scheduleIcon} />
+                    <View style={styles.scheduleInfo}>
+                        <Text style={[styles.scheduleTime, !hasEnoughFood && {color: lowFoodWarningColor }]}>{item.time}</Text>
+                        <Text style={[styles.scheduleWeight, !hasEnoughFood && {color: lowFoodWarningColor }]}>
+                          {item.weight}g
+                          {!hasEnoughFood && item.isOn && " (Low Food!)"}
+                        </Text>
+                    </View>
+                    <View style={styles.scheduleControls}>
+                        <Switch
+                            trackColor={{ false: "#D1C4E9", true: hasEnoughFood ? themeColors.light : lowFoodWarningColor }} 
+                            thumbColor={item.isOn ? (hasEnoughFood ? themeColors.primary : lowFoodWarningColor) : "#f4f3f4"}
+                            ios_backgroundColor="#E0E0E0"
+                            onValueChange={() => toggleSchedule(item.id, scheduledAmount)}
+                            value={item.isOn}
+                            disabled={isSaving}
+                            style={{ transform: [{ scaleX: .9 }, { scaleY: .9 }] }}
+                        />
+                        <TouchableOpacity onPress={() => deleteSchedule(item.id)} style={styles.deleteButton} disabled={isSaving}>
+                            <Icon name="trash-bin-outline" size={22} color={isSaving ? styles.themePalette.textMuted.color : styles.themePalette.danger.color} />
+                        </TouchableOpacity>
+                    </View>
+                </View>
+              );
+          }}
+          scrollEnabled={false}
+          ItemSeparatorComponent={() => <View style={styles.listItemSeparator} />}
+        />
         )}
       </View>
 
@@ -1363,6 +1564,102 @@ export default function PetFeeder() {
          </View>
        </Modal>
 
+      {/* Update Food Hopper Modal */}
+      <Modal
+        visible={showUpdateFoodLevelModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => !isSaving && setShowUpdateFoodLevelModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Icon name="cube-outline" size={30} color={styles.themePalette.primary.color} style={{marginBottom: 10}} />
+            <Text style={styles.modalTitle}>Update Food Hopper</Text>
+
+            <Text style={styles.modalLabel}>Current Food in Hopper (grams):</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder={`e.g., ${currentFoodLevel}`}
+              placeholderTextColor={styles.themePalette.textMuted.color}
+              keyboardType="number-pad"
+              value={tempInputFoodLevel}
+              onChangeText={(text) => {
+                const digitsOnly = text.replace(/[^0-9]/g, '');
+                setTempInputFoodLevel(digitsOnly);
+              }}
+              editable={!isSaving}
+              maxLength={5}
+            />
+
+            <View style={styles.addGramsContainer}>
+                <TextInput
+                    style={[styles.modalInput, styles.addGramsInput]}
+                    placeholder="Add grams (e.g., 200)"
+                    placeholderTextColor={styles.themePalette.textMuted.color}
+                    keyboardType="number-pad"
+                    value={gramsToAdd}
+                    onChangeText={(text) => {
+                      const digitsOnly = text.replace(/[^0-9]/g, '');
+                      setGramsToAdd(digitsOnly);
+                    }}
+                    editable={!isSaving}
+                    maxLength={4}
+                />
+                <TouchableOpacity
+                    style={[
+                        styles.addGramsButton, 
+                        (isSaving || !gramsToAdd || (parseInt(gramsToAdd, 10) || 0) <= 0) && styles.buttonDisabled
+                    ]}
+                    onPress={handleAddGramsToHopper}
+                    disabled={isSaving || !gramsToAdd || (parseInt(gramsToAdd, 10) || 0) <= 0}
+                >
+                    <Icon name="add-circle-outline" size={20} color="#fff" style={{marginRight: 5}}/>
+                    <Text style={styles.addGramsButtonText}>Add</Text>
+                </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalLabel}>Total Hopper Capacity (grams):</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder={`e.g., ${hopperCapacity}`}
+              placeholderTextColor={styles.themePalette.textMuted.color}
+              keyboardType="number-pad"
+              value={tempInputHopperCapacity}
+              onChangeText={(text) => {
+                const digitsOnly = text.replace(/[^0-9]/g, '');
+                setTempInputHopperCapacity(digitsOnly);
+              }}
+              editable={!isSaving}
+              maxLength={5}
+            />
+
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalPrimaryButton, {marginTop: 20}, isSaving && styles.buttonDisabled]}
+              onPress={handleSaveFoodLevel}
+              disabled={isSaving}
+            >
+              {isSaving ? <ActivityIndicator size="small" color="#fff" /> : (
+                <>
+                  <Icon name="save-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+                  <Text style={styles.modalButtonText}>Save Levels</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.modalButton, styles.modalSecondaryButton, isSaving && styles.buttonDisabled]}
+              onPress={() => {
+                setShowUpdateFoodLevelModal(false);
+                setGramsToAdd('');
+              }}
+              disabled={isSaving}
+            >
+              <Text style={[styles.modalButtonText, {color: styles.themePalette.primary.color}]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </ScrollView>
   );
 }
@@ -1384,6 +1681,7 @@ const themeColors = {
   danger: '#DC3545',
   warning: '#FFC107',
   info: '#17A2B8',
+  warningMutedPurple: '#A98BBD',
 };
 
 const styles = StyleSheet.create({
@@ -1396,6 +1694,7 @@ const styles = StyleSheet.create({
     warning: { color: themeColors.warning },
     info: { color: themeColors.info },
     textMuted: { color: themeColors.textMuted },
+    warningMutedPurple: { color: themeColors.warningMutedPurple }, 
   },
   scrollView: {
     flex: 1,
@@ -1921,5 +2220,32 @@ const styles = StyleSheet.create({
   },
   passwordToggleIcon: {
     padding: 10,
+  },
+
+  addGramsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 15,
+  },
+  addGramsInput: {
+    flex: 1,
+    marginRight: 10,
+    marginBottom: 0,
+  },
+  addGramsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: themeColors.accent,
+    borderRadius: 8,
+    // minWidth: 80,
+  },
+  addGramsButtonText: {
+    color: themeColors.textOnPrimary,
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

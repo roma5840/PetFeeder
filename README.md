@@ -15,6 +15,8 @@
 
 ## Current Version
 
+v9 - added manually setting of food level (with automatic food deduction based on feed now and successful scheduled feed)
+
 v8.2 - added captcha in register
 
 v8.1 - added password checklist in change password and edited eye button in password fields
