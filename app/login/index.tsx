@@ -30,6 +30,9 @@ import { WebView } from 'react-native-webview';
 const TURNSTILE_SITE_KEY = "0x4AAAAAABcgC0f4En2181LP"; 
 const BACKEND_VERIFY_URL = "https://petfeeder-turnstile.ryanoliver565.workers.dev/verify-turnstile"; 
 
+const COMPACT_WIDGET_WIDTH = 150;
+const COMPACT_WIDGET_HEIGHT = 140;
+
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -148,7 +151,7 @@ export default function Login() {
     <!DOCTYPE html>
     <html>
     <head>
-      <meta name="viewport" content="width=300, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+      <meta name="viewport" content="width=${COMPACT_WIDGET_WIDTH}, height=${COMPACT_WIDGET_HEIGHT}, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
       <title>Cloudflare Turnstile</title>
       <style>
         html, body {
@@ -160,6 +163,7 @@ export default function Login() {
           justify-content: center;
           align-items: center;
           background-color: #f8f9fa;
+          overflow: hidden;
         }
       </style>
       <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
@@ -172,7 +176,8 @@ export default function Login() {
            data-error-callback="onTurnstileError"
            data-theme="light" 
            data-action="login"
-           data-language="en"> 
+           data-language="en"
+           data-size="compact"> 
       </div>
       <script>
         function onTurnstileSuccess(token) {
@@ -262,8 +267,7 @@ export default function Login() {
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Please Complete Security Check</Text>
-
+            <Text style={styles.modalTitle}>Security Check</Text>
             <View style={styles.webViewWrapper}>
               <View style={styles.webViewContainer}>
                 <WebView
@@ -432,8 +436,9 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     paddingHorizontal: 15,
     alignItems: 'center',
-    width: '90%',
-    maxWidth: 380,
+    width: 'auto',
+    minWidth: COMPACT_WIDGET_WIDTH + 30,
+    maxWidth: 320,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2, },
     shadowOpacity: 0.25,
@@ -448,17 +453,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   webViewWrapper: {
-    width: '100%',
+    width: COMPACT_WIDGET_WIDTH,
+    height: COMPACT_WIDGET_HEIGHT,
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 15,
   },
   webViewContainer: {
-    width: 300,
-    height: 75,
+    width: COMPACT_WIDGET_WIDTH,
+    height: COMPACT_WIDGET_HEIGHT,
     overflow: 'hidden',
   },
   webView: {
-    flex: 1,
+    // flex: 1,
     width: '100%',
     height: '100%',
     // backgroundColor: 'transparent', 
