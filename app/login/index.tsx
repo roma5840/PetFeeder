@@ -28,7 +28,7 @@ import Icon from "react-native-vector-icons/Ionicons";
 import { WebView } from 'react-native-webview';
 
 const TURNSTILE_SITE_KEY = "0x4AAAAAABcgC0f4En2181LP"; 
-const BACKEND_VERIFY_URL = "https://petfeeder-recaptcha.onrender.com/verify-turnstile"; 
+const BACKEND_VERIFY_URL = "https://petfeeder-turnstile.ryanoliver565.workers.dev/verify-turnstile"; 
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -398,7 +398,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   disabledButton: {
-    backgroundColor: "#E0E0E0",
+    backgroundColor: "#DAC3E8",
   },
   buttonText: {
     color: "#fff",
