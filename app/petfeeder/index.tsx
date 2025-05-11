@@ -222,7 +222,7 @@ useEffect(() => {
             checkAllLoaded();
         }
     }, (error) => {
-        console.error(`useEffect: Error listening to food config at ${foodConfigRefPath}:`, error);
+        // console.error(`useEffect: Error listening to food config at ${foodConfigRefPath}:`, error);
         // Alert.alert("Error", "Could not load food hopper settings.");
         setCurrentFoodLevel(0); setHopperCapacity(1000);
         if (!foodConfigListenerReady) {
@@ -288,7 +288,7 @@ useEffect(() => {
             checkAllLoaded();
         }
     }, (error) => {
-        console.error(`useEffect: Error listening to feeder status at ${statusRefPath}:`, error);
+        // console.error(`useEffect: Error listening to feeder status at ${statusRefPath}:`, error);
         if (!statusListenerReady) {
             statusListenerReady = true;
             console.log("useEffect: StatusListener ERRORED but marked READY.");
@@ -307,7 +307,7 @@ useEffect(() => {
             checkAllLoaded();
         }
     }, (error) => {
-        console.error(`useEffect: Error listening to schedules at ${schedulesRefPath}:`, error);
+        // console.error(`useEffect: Error listening to schedules at ${schedulesRefPath}:`, error);
         if (!schedulesListenerReady) {
             schedulesListenerReady = true;
             console.log("useEffect: SchedulesListener ERRORED but marked READY.");
@@ -328,7 +328,7 @@ useEffect(() => {
             checkAllLoaded();
         }
     }, (error) => {
-        console.error("useEffect: Error listening to feeding history:", error);
+        // console.error("useEffect: Error listening to feeding history:", error);
         setIsLoadingHistory(false);
         if (!historyListenerReady) {
             historyListenerReady = true;

@@ -3,6 +3,10 @@
 
 // v8.1:
 // change show button -> eye
+
+// v10:
+// added cloudflare turnstile for captcha (removed math captcha)
+
 import { useState, useEffect } from "react";
 import {
   View,
@@ -13,166 +17,188 @@ import {
   Alert,
   BackHandler,
   Image,
-  ActivityIndicator 
+  ActivityIndicator,
+  Modal,
+  Platform
 } from "react-native";
 import { Link, useRouter, useNavigation } from "expo-router";
 import { signInWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
-import { auth } from "../firebaseConfig"; 
-import { getDatabase, ref, get } from "firebase/database";
+import { auth } from "../firebaseConfig";
 import Icon from "react-native-vector-icons/Ionicons";
+import { WebView } from 'react-native-webview';
+
+const TURNSTILE_SITE_KEY = "0x4AAAAAABcgC0f4En2181LP"; 
+const BACKEND_VERIFY_URL = "https://petfeeder-recaptcha.onrender.com/verify-turnstile"; 
 
 export default function Login() {
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [captchaAnswer, setCaptchaAnswer] = useState("");
-  const [num1, setNum1] = useState(0);
-  const [num2, setNum2] = useState(0);
-  const [expectedAnswer, setExpectedAnswer] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
+
+  const [showChallengeModal, setShowChallengeModal] = useState(false);
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
 
   const router = useRouter();
   const navigation = useNavigation();
 
-
   useEffect(() => {
     navigation.setOptions({
       headerShown: false,
-      gestureEnabled: false 
+      gestureEnabled: false
     });
-
-    const handleBackPress = () => true; 
+    const handleBackPress = () => true;
     BackHandler.addEventListener("hardwareBackPress", handleBackPress);
-
     return () => {
       BackHandler.removeEventListener("hardwareBackPress", handleBackPress);
     };
   }, [navigation]);
 
-  useEffect(() => {
-    generateCaptcha();
-  }, []);
-
-
-  const generateCaptcha = () => {
-    const n1 = Math.floor(Math.random() * 10) + 1;
-    const n2 = Math.floor(Math.random() * 10) + 1;
-    setNum1(n1);
-    setNum2(n2);
-    setExpectedAnswer(n1 + n2);
-    setCaptchaAnswer(""); 
+  const attemptLogin = async () => {
+    if (!email.trim() || !password) {
+      Alert.alert("Error", "Please fill in email and password.");
+      return;
+    }
+    setChallengeToken(null);
+    setShowChallengeModal(true);
   };
 
-  const handleLogin = async () => {
-    if (!email.trim() || !password || !captchaAnswer.trim()) {
-      Alert.alert("Error", "Please fill in all fields");
-      return;
-    }
+  const handleChallengeVerify = (token: string) => {
+    // console.log("Challenge Token received from WebView:", token);
+    setShowChallengeModal(false);
+    setTimeout(() => {
+      verifyTokenAndLogin(token);
+    }, 100);
+  };
 
-    if (parseInt(captchaAnswer) !== expectedAnswer) {
-      Alert.alert("Error", "Incorrect CAPTCHA answer");
-      generateCaptcha(); 
-      return;
-    }
-
+  const verifyTokenAndLogin = async (token: string) => {
     setLoading(true);
+    setChallengeToken(token);
     try {
+      console.log("Verifying Challenge token with backend:", BACKEND_VERIFY_URL);
+      const verifyResponse = await fetch(BACKEND_VERIFY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', },
+        body: JSON.stringify({ token }),
+      });
+
+      if (!verifyResponse.ok) {
+        let errorMsg = `Server responded with ${verifyResponse.status}.`;
+        try {
+            const errorResult = await verifyResponse.json();
+            errorMsg = errorResult.message || errorMsg;
+        } catch (e) {
+            errorMsg = verifyResponse.statusText || errorMsg;
+        }
+        Alert.alert("Challenge Verification Error", errorMsg);
+        setChallengeToken(null); setLoading(false); return;
+      }
+
+      const verifyResult = await verifyResponse.json();
+
+      if (!verifyResult.success) {
+        Alert.alert("Challenge Error", verifyResult.message || "Failed to verify challenge. Please try again.");
+        setChallengeToken(null); setLoading(false); return;
+      }
+
+      console.log("Challenge verified by backend successfully.");
       const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
       const user = userCredential.user;
-
       if (!user.emailVerified) {
-        console.log("Login successful but email not verified for:", user.email);
-    
         Alert.alert(
           "Email Not Verified",
-          "Your email address needs verification before you can log in fully. Would you like to resend the verification link?",
+          "Your email address needs verification. Resend link?",
           [
-            {
-              text: "Resend Link",
-              onPress: async () => {
-                console.log("Resend verification link requested.");
-                try {
-                  await sendEmailVerification(user);
-                  Alert.alert("Link Sent", "Verification link resent. Please check your inbox (and spam folder).");
-                } catch (error) {
-                  // console.error("Error resending verification email:", error);
-                  Alert.alert("Error", "Could not resend verification link. Please try again later.");
-                  // if (error.code === 'auth/too-many-requests') { ... }
-                } finally {
-                  console.log("Signing out user after resend attempt/cancel.");
-                  await auth.signOut();
-                  setLoading(false);
-                  generateCaptcha();
-                }
-              },
-            },
-            {
-              text: "OK",
-              onPress: async () => {
-                console.log("Signing out user after pressing OK.");
-                await auth.signOut();
-                setLoading(false);
-                generateCaptcha();
-              },
-              style: "cancel",
-            },
-          ],
-          { cancelable: false }
-        );
-    
+            { text: "Resend Link", onPress: async () => {
+                try { await sendEmailVerification(user); Alert.alert("Link Sent", "Verification link resent."); }
+                catch (e) { Alert.alert("Error", "Could not resend link."); }
+                finally { await auth.signOut(); setLoading(false); setChallengeToken(null); }
+            }},
+            { text: "OK", onPress: async () => { await auth.signOut(); setLoading(false); setChallengeToken(null); }, style: "cancel" },
+          ], { cancelable: false });
         return;
       }
-
-      // console.log("User verified, checking database...");
-
-      // const db = getDatabase();
-      // const userRef = ref(db, `users/${userCredential.user.uid}`);
-      // const snapshot = await get(userRef);
-
-      // if (snapshot.exists() && snapshot.val().petName) {
-      //   router.replace("/petfeeder");
-      // } else {
-      //   router.replace("/");
-      // }
-
-    } catch (error) {
+      console.log("User logged in and email verified:", user.email);
+      router.replace("/");
+    } catch (error: any) {
       let errorMessage = "An unknown login error occurred.";
-       if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-          errorMessage = "Invalid email or password. Please try again.";
-      } else if (error.code === 'auth/invalid-email') {
-          errorMessage = "Please enter a valid email address.";
-      } else if (error.code === 'auth/too-many-requests') {
-           errorMessage = "Access temporarily disabled due to too many failed login attempts. Please try again later or reset your password.";
+       if (error.code) {
+          if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+              errorMessage = "Invalid email or password.";
+          } else if (error.code === 'auth/invalid-email') {
+              errorMessage = "Please enter a valid email address.";
+          } else if (error.code === 'auth/too-many-requests') {
+               errorMessage = "Too many failed login attempts. Please try again later.";
+          } else { errorMessage = error.message || "Firebase auth error."; }
       } else if (error.message) {
-          errorMessage = error.message;
+          if (error.message.toLowerCase().includes('network request failed')) {
+              errorMessage = "Network Error: Could not connect to the verification server.";
+          } else {
+              errorMessage = error.message;
+          }
       }
       Alert.alert("Login Error", errorMessage);
-      generateCaptcha(); 
-      setLoading(false);
+      setChallengeToken(null);
     } finally {
       setTimeout(() => setLoading(false), 100);
     }
   };
 
-  const isCaptchaCorrect = parseInt(captchaAnswer, 10) === expectedAnswer; 
-  const isLoginDisabled =
-    !email.trim() ||
-    !password || 
-    !captchaAnswer.trim() ||
-    !isCaptchaCorrect;
+  const turnstileHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta name="viewport" content="width=300, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+      <title>Cloudflare Turnstile</title>
+      <style>
+        html, body {
+          margin: 0;
+          padding: 0;
+          width: 100%;
+          height: 100%;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          background-color: #f8f9fa;
+        }
+      </style>
+      <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    </head>
+    <body>
+      <div class="cf-turnstile"
+           data-sitekey="${TURNSTILE_SITE_KEY}"
+           data-callback="onTurnstileSuccess"
+           data-expired-callback="onTurnstileExpired"
+           data-error-callback="onTurnstileError"
+           data-theme="light" 
+           data-action="login"
+           data-language="en"> 
+      </div>
+      <script>
+        function onTurnstileSuccess(token) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'token', value: token }));
+        }
+        function onTurnstileExpired() {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'expired' }));
+        }
+        function onTurnstileError(errorCode) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'error', value: 'Turnstile error: ' + errorCode }));
+        }
+      </script>
+    </body>
+    </html>
+  `;
+
+  const isLoginDisabled = !email.trim() || !password || loading;
 
   return (
     <View style={styles.container}>
-
       <Image
         source={require('../../assets/images/logo3.png')}
         style={styles.logo}
         resizeMode="contain"
       />
-
       <Text style={styles.title}>Pet Feeder Login</Text>
-
       <TextInput
         style={styles.input}
         placeholder="Email"
@@ -181,9 +207,8 @@ export default function Login() {
         onChangeText={setEmail}
         autoCapitalize="none"
         keyboardType="email-address"
-        autoComplete="email" 
+        autoComplete="email"
       />
-
       <View style={[styles.passwordInputContainer, {height: 50}]}>
         <TextInput
             style={styles.passwordInputText}
@@ -192,59 +217,30 @@ export default function Login() {
             value={password}
             onChangeText={setPassword}
             secureTextEntry={!showPassword}
-            autoComplete="password" 
+            autoComplete="password"
         />
         <TouchableOpacity
           style={styles.passwordToggleIcon}
           onPress={() => setShowPassword(!showPassword)}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Icon
-            name={showPassword ? "eye-outline" : "eye-off-outline"}
-            size={22}
-            color="#A06CD5"
-          />
+          <Icon name={showPassword ? "eye-outline" : "eye-off-outline"} size={22} color="#A06CD5" />
         </TouchableOpacity>
       </View>
-
-      <View style={styles.captchaForgotRow}>
-
-        <View style={styles.captchaGroup}>
-          <Text style={styles.captchaQuestion}>What is {num1} + {num2}?</Text>
-          <TextInput
-            style={styles.captchaInput}
-            placeholder="?"
-            placeholderTextColor="#aaa"
-            value={captchaAnswer}
-            onChangeText={setCaptchaAnswer}
-            keyboardType="number-pad"
-            maxLength={2}
-          />
-        </View>
-
-
+      <View style={styles.forgotPasswordRow}>
         <Link href="/resetpassword" asChild>
         <TouchableOpacity style={styles.forgotPasswordButtonContainer}>
           <Text style={styles.forgotPasswordLink}>Forgot Password?</Text>
         </TouchableOpacity>
         </Link>
-
       </View>
-
-
-      {/* Login Button */}
       <TouchableOpacity
-        style={[styles.button, (isLoginDisabled || loading) && styles.disabledButton]}
-        onPress={handleLogin}
-        disabled={isLoginDisabled || loading}
+        style={[styles.button, (isLoginDisabled) && styles.disabledButton]}
+        onPress={attemptLogin}
+        disabled={isLoginDisabled}
       >
-        {loading ? (
-          <ActivityIndicator size="small" color="#fff" />
-        ) : (
-          <Text style={styles.buttonText}>Login</Text>
-        )}
+        {loading && !showChallengeModal ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.buttonText}>Login</Text>}
       </TouchableOpacity>
-
       <View style={styles.footer}>
         <Text style={styles.footerText}>Don't have an account? </Text>
         <Link href="/register" asChild replace={true}>
@@ -253,6 +249,76 @@ export default function Login() {
           </TouchableOpacity>
         </Link>
       </View>
+
+      <Modal
+        visible={showChallengeModal}
+        onRequestClose={() => {
+          setShowChallengeModal(false);
+          setChallengeToken(null);
+          if (loading) setLoading(false);
+        }}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Please Complete Security Check</Text>
+
+            <View style={styles.webViewWrapper}>
+              <View style={styles.webViewContainer}>
+                <WebView
+                    source={{ html: turnstileHtml, baseUrl: 'https://localhost' }}
+                    style={styles.webView}
+                    javaScriptEnabled
+                    domStorageEnabled
+                    originWhitelist={['*']}
+                    scrollEnabled={false}
+                    onMessage={(event) => {
+                        try {
+                            const rawData = event.nativeEvent.data;
+                            const messageData = JSON.parse(rawData);
+                            if (messageData.type === 'token' && messageData.value) {
+                                handleChallengeVerify(messageData.value);
+                            } else if (messageData.type === 'expired') {
+                                Alert.alert("Challenge Expired", "Please try again.");
+                                setShowChallengeModal(false); setChallengeToken(null); if (loading) setLoading(false);
+                            } else if (messageData.type === 'error') {
+                                console.error("Turnstile WebView Error:", messageData.value);
+                                Alert.alert("Security Check Error", `Details: ${messageData.value}. Try again.`);
+                                setShowChallengeModal(false); setChallengeToken(null); if (loading) setLoading(false);
+                            }
+                        } catch (e) {
+                            console.error("Error parsing WebView message:", e, event.nativeEvent.data);
+                        }
+                    }}
+                    onError={(syntheticEvent) => {
+                        const {nativeEvent} = syntheticEvent;
+                        // console.error('WebView ERROR: ', nativeEvent);
+                        Alert.alert("WebView Error", `Could not load security check. Details: ${nativeEvent.description || 'Unknown'}`);
+                        setShowChallengeModal(false); if (loading) setLoading(false);
+                    }}
+                    onLoadStart={() => console.log("WebView loading started (Turnstile)...")}
+                    onLoadEnd={() => console.log("WebView loading finished (Turnstile).")}
+                />
+              </View>
+            </View>
+
+            {/* 
+            <TouchableOpacity
+                style={styles.closeModalButton}
+                onPress={() => {
+                    setShowChallengeModal(false);
+                    setChallengeToken(null);
+                    if (loading) setLoading(false);
+                }}
+            >
+                <Text style={styles.closeModalButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            */}
+            
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -290,94 +356,49 @@ const styles = StyleSheet.create({
     color: '#333',
     width: '100%',
   },
-  passwordContainer: {
-    position: 'relative',
-    width: '100%',
-  },
-  passwordInput: {
-     paddingRight: 60, 
-  },
-  eyeButton: {
-    position: 'absolute', 
-    right: 0,
-    top: 0,
-    bottom: 16,
-    justifyContent: 'center',
-    paddingHorizontal: 15, 
-    zIndex: 1,
-  },
-  eyeButtonText: {
-    color: "#A06CD5",
-    fontWeight: "bold",
-    fontSize: 14,
-  },
-  captchaForgotRow: {
+  passwordInputContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     width: '100%',
-    marginBottom: 20,
-    // marginTop: 5,
+    borderWidth: 1,
+    borderColor: "#A06CD5",
+    borderRadius: 8,
+    marginBottom: 15,
+    backgroundColor: "#fff",
   },
-
-  forgotPasswordContainer: {
+  passwordInputText: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingLeft: 15,
+    paddingRight: 10,
+    fontSize: 16,
+    color: '#333',
+    height: '100%',
+  },
+  passwordToggleIcon: {
+    padding: 12,
+  },
+  forgotPasswordRow: {
     width: '100%',
     alignItems: 'flex-end',
-    marginBottom: 15,
+    marginBottom: 20,
   },
+  forgotPasswordButtonContainer: {},
   forgotPasswordLink: {
     color: "#A06CD5",
     fontWeight: "normal",
     fontSize: 14,
-    // alignSelf: 'flex-start',
-  },
-  captchaRow: {
-    flexDirection: 'row',
-    // justifyContent: 'space-between',
-    alignItems: 'center',
-    width: '100%',
-    marginBottom: 20,
-  },
-  captchaGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  captchaQuestion: {
-    fontSize: 16,
-    color: '#555',
-    marginRight: 8,
-    width: 135, // Adjust width for long question
-
-  },
-  captchaInput: {
-    height: 45,
-    width: 60,
-    borderWidth: 1,
-    borderColor: "#A06CD5",
-    borderRadius: 8,
-    // paddingHorizontal: 10,
-    backgroundColor: "#fff",
-    fontSize: 16,
-    color: '#333',
-    textAlign: 'center',
-  },
-  forgotPasswordButtonContainer: {
-    alignSelf: 'flex-start',
-    // paddingTop: 2,
-    // paddingVertical: 5,
-    // paddingHorizontal: 5,
-    marginTop: -5,
   },
   button: {
     backgroundColor: "#A06CD5",
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: "center",
-    marginTop: 10, 
+    marginTop: 10,
     width: '100%',
   },
   disabledButton: {
-    backgroundColor: "#E0E0E0", 
+    backgroundColor: "#E0E0E0",
   },
   buttonText: {
     color: "#fff",
@@ -390,7 +411,7 @@ const styles = StyleSheet.create({
     marginTop: 25,
     alignItems: 'center',
   },
-   footerText: {
+  footerText: {
     color: '#555',
     fontSize: 15,
   },
@@ -399,29 +420,59 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 15,
   },
-
-  passwordInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    borderWidth: 1,
-    borderColor: "#A06CD5",
-    borderRadius: 8,
-    marginBottom: 15,
-    backgroundColor: "#fff",
-    // height: 50,
-  },
-  passwordInputText: {
+  modalContainer: {
     flex: 1,
-    // height: 50 container, paddingVertical: 12 
-    paddingVertical: 12, 
-    paddingLeft: 15,
-    paddingRight: 10,
-    fontSize: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingVertical: 20,
+    paddingHorizontal: 15,
+    alignItems: 'center',
+    width: '90%',
+    maxWidth: 380,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2, },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 15,
     color: '#333',
+    textAlign: 'center',
   },
-  passwordToggleIcon: {
-    padding: 12,
+  webViewWrapper: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 15,
   },
-  
+  webViewContainer: {
+    width: 300,
+    height: 75,
+    overflow: 'hidden',
+  },
+  webView: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    // backgroundColor: 'transparent', 
+  },
+  closeModalButton: {
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 25,
+    backgroundColor: '#A06CD5',
+    borderRadius: 8,
+  },
+  closeModalButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 15,
+  },
 });

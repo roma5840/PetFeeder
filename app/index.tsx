@@ -1,15 +1,20 @@
-import { useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, Image } from "react-native";
+// UPDATED index
+// Changes made by me (Ryan):
+
+// v10:
+// bug fix (made it so that it's loading instead of the temporary flash of index.tsx)
+// still to test for errors
+
+import { useState, useEffect } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, Image, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { auth } from "./firebaseConfig";
-import { onAuthStateChanged } from "firebase/auth";
-import { useEffect } from "react";
+import { onAuthStateChanged, User } from "firebase/auth";
 import { getDatabase, ref, get } from "firebase/database";
 
-
-// FIXED CODE
 export default function Home() {
   const [selectedPet, setSelectedPet] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
   const handleContinue = () => {
@@ -22,35 +27,53 @@ export default function Home() {
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    setIsLoading(true);
+
+    const unsubscribe = onAuthStateChanged(auth, async (user: User | null) => {
       if (!user) {
         router.replace("/login");
       } else {
-        const db = getDatabase();
-        const userRef = ref(db, `users/${user.uid}`);
-        const snapshot = await get(userRef);
-        
-        if (snapshot.exists() && snapshot.val().petName) {
-          router.replace("/petfeeder");
-        } else {
-          setSelectedPet(null);
+        try {
+          const db = getDatabase();
+          const userRef = ref(db, `users/${user.uid}`);
+          const snapshot = await get(userRef);
+
+          if (snapshot.exists() && snapshot.val().petName) {
+            router.replace("/petfeeder");
+          } else {
+            // User is logged in, but no pet data exists -> show pet selection.
+            setSelectedPet(null);
+            setIsLoading(false);
+          }
+        } catch (error) {
+          console.error("Error fetching user data:", error);
+          // router.replace("/login"); // or some error screen
+          setIsLoading(false);
         }
       }
     });
-  
-    return unsubscribe;
-  }, []);
-  
-  
+
+    return () => {
+      unsubscribe();
+      // setIsLoading(false);
+    };
+  }, [router]); 
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#B185DB" />
+
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-
-<Image
+      <Image
         source={require('../assets/images/logo3.png')}
         style={styles.foregroundImage}
       />
-
 
       <Text style={styles.title}>Select Your Pet</Text>
 
@@ -82,29 +105,31 @@ export default function Home() {
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f8f9fa",
+  },
   container: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#f8f9fa",
   },
-
   foregroundImage: {
-    width: 300, // Adjust size
+    width: 300,
     height: 300,
-    position: 'absolute', // Floating on top
-    top: 50, // Adjust positioning
-    right: 60, // Adjust positioning
-    zIndex: 10, // Bring to front
+    position: 'absolute',
+    top: 50,
+    right: 60,
+    zIndex: 10,
   },
-
-
-
-
   title: {
     fontSize: 24,
     fontWeight: "bold",
     marginBottom: 20,
+    marginTop: 250,
   },
   buttonContainer: {
     flexDirection: "row",
@@ -119,17 +144,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   selected: {
-    backgroundColor: "#B185DB", // Green for selected option
+    backgroundColor: "#B185DB",
   },
   continueButton: {
     padding: 15,
-    backgroundColor: "#C19EE0", // Blue for active button
+    backgroundColor: "#C19EE0",
     borderRadius: 10,
     width: 200,
     alignItems: "center",
   },
   disabled: {
-    backgroundColor: "#C0B5DB", // Grey when disabled
+    backgroundColor: "#C0B5DB",
   },
   buttonText: {
     color: "#fff",

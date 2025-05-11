@@ -15,6 +15,8 @@
 
 ## Current Version
 
+v10 - implemented cloudflare turnstile captcha for login and bug fixes in app/index.tsx
+
 v9 - added manually setting of food level (with automatic food deduction based on feed now and successful scheduled feed)
 
 v8.2 - added captcha in register
