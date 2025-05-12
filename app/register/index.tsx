@@ -353,11 +353,11 @@ export default function Register() {
                             if (messageData.type === 'token' && messageData.value) {
                                 handleChallengeVerify(messageData.value);
                             } else if (messageData.type === 'expired') {
-                                Alert.alert("Challenge Expired", "The security challenge has expired. Please try again.");
+                                Alert.alert("Challenge Expired", "Please try again.");
                                 setShowChallengeModal(false); setChallengeToken(null); if (loading) setLoading(false);
                             } else if (messageData.type === 'error') {
                                 console.error("Turnstile WebView Error (Register):", messageData.value);
-                                Alert.alert("Security Check Error", `An error occurred with the security check. Details: ${messageData.value}. Please try again.`);
+                                Alert.alert("Security Check Error", `An error occurred during the security check. Details: ${messageData.value}. Please try again.`);
                                 setShowChallengeModal(false); setChallengeToken(null); if (loading) setLoading(false);
                             }
                         } catch (e) {

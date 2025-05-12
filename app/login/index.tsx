@@ -288,17 +288,19 @@ export default function Login() {
                                 setShowChallengeModal(false); setChallengeToken(null); if (loading) setLoading(false);
                             } else if (messageData.type === 'error') {
                                 console.error("Turnstile WebView Error:", messageData.value);
-                                Alert.alert("Security Check Error", `Details: ${messageData.value}. Try again.`);
+                                Alert.alert("Security Check Error", `An error occurred during the security check. Details: ${messageData.value}. Please try again.`);
                                 setShowChallengeModal(false); setChallengeToken(null); if (loading) setLoading(false);
                             }
                         } catch (e) {
                             console.error("Error parsing WebView message:", e, event.nativeEvent.data);
+                            Alert.alert("Error", "Could not process security check response.");
+                            setShowChallengeModal(false); setChallengeToken(null); if (loading) setLoading(false);
                         }
                     }}
                     onError={(syntheticEvent) => {
                         const {nativeEvent} = syntheticEvent;
                         // console.error('WebView ERROR: ', nativeEvent);
-                        Alert.alert("WebView Error", `Could not load security check. Details: ${nativeEvent.description || 'Unknown'}`);
+                        Alert.alert("WebView Error", `Could not load the security check. Please check your connection and try again. Details: ${nativeEvent.description || 'Unknown'}`);
                         setShowChallengeModal(false); if (loading) setLoading(false);
                     }}
                     onLoadStart={() => console.log("WebView loading started (Turnstile)...")}
