@@ -17,6 +17,7 @@ import {
   Keyboard,
   Dimensions,
   Platform,
+  BackHandler,
 } from "react-native";
 import Icon from "react-native-vector-icons/Ionicons";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -567,6 +568,30 @@ export default function PetFeeder() {
 
     calculateNext();
   }, [schedules, currentFoodLevel, feederOnline]);
+
+  useEffect(() => {
+    const handleHardwareBackPress = () => {
+      if (showTotpManagementModal && totpStep === 'showRecovery') {
+        Alert.alert(
+          "Action Required",
+          "Please confirm you have saved your recovery codes and then tap 'Done'.",
+          [{ text: "OK" }]
+        );
+        return true;
+      }
+      return false;
+    };
+
+    if (Platform.OS === 'android') {
+      BackHandler.addEventListener('hardwareBackPress', handleHardwareBackPress);
+    }
+
+    return () => {
+      if (Platform.OS === 'android') {
+        BackHandler.removeEventListener('hardwareBackPress', handleHardwareBackPress);
+      }
+    };
+  }, [showTotpManagementModal, totpStep]); 
 
 
   const handleAddFeedingTime = () => {
@@ -1916,12 +1941,40 @@ export default function PetFeeder() {
 
 
       {/* TOTP Management Modal */}
-      <Modal visible={showTotpManagementModal} transparent={true} animationType="fade" onRequestClose={() => !isTotpLoading && setShowTotpManagementModal(false)}>
+      <Modal
+      visible={showTotpManagementModal}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={() => {
+          if (totpStep === 'showRecovery') {
+              Alert.alert(
+                  "Action Required",
+                  "Please confirm you have saved your recovery codes and then tap 'Done'.",
+                  [{ text: "OK" }]
+              );
+              return;
+          }
+
+          if (!isTotpLoading) {
+              setShowTotpManagementModal(false);
+              setTotpStep('initial');
+          }
+      }}
+      >
           <View style={styles.modalOverlay}>
               <View style={[styles.modalContent, {minHeight: 300}]}>
-                  <TouchableOpacity style={styles.modalBackButton} onPress={() => {setShowTotpManagementModal(false); setTotpStep('initial');}} disabled={isTotpLoading}>
-                      <Icon name="close-outline" size={28} color={themeColors.primary} />
-                  </TouchableOpacity>
+                  {totpStep !== 'showRecovery' && (
+                      <TouchableOpacity
+                          style={styles.modalBackButton}
+                          onPress={() => {
+                              setShowTotpManagementModal(false);
+                              setTotpStep('initial');
+                          }}
+                          disabled={isTotpLoading}
+                      >
+                          <Icon name="close-outline" size={28} color={themeColors.primary} />
+                      </TouchableOpacity>
+                  )}
                   <Icon name="shield-checkmark-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
                   <Text style={styles.modalTitle}>Two-Factor Authentication</Text>
 
