@@ -15,6 +15,12 @@
 
 ## Current Version
 
+v12 - MAJOR UPDATE: TOTP
+- for commands -> npx expo install react-native-qrcode-svg
+
+
+## Release Notes
+
 v11 - major UI update
 - added pet notes
 - added analytics (history)

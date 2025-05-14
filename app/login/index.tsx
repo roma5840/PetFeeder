@@ -1,11 +1,5 @@
-// UPDATED LOGIN UI
-// Changes made by me (Ryan):
-
-// v8.1:
-// change show button -> eye
-
-// v10:
-// added cloudflare turnstile for captcha (removed math captcha)
+// v12:
+// added TOTP 2FA
 
 import { useState, useEffect } from "react";
 import {
@@ -22,10 +16,11 @@ import {
   Platform
 } from "react-native";
 import { Link, useRouter, useNavigation } from "expo-router";
-import { signInWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
+import { signInWithEmailAndPassword, sendEmailVerification, signOut } from "firebase/auth";
 import { auth } from "../firebaseConfig";
 import Icon from "react-native-vector-icons/Ionicons";
 import { WebView } from 'react-native-webview';
+import { getDatabase, ref, get } from 'firebase/database';
 
 const TURNSTILE_SITE_KEY = "0x4AAAAAABcgC0f4En2181LP"; 
 const BACKEND_VERIFY_URL = "https://petfeeder-turnstile.ryanoliver565.workers.dev/verify-turnstile"; 
@@ -107,6 +102,7 @@ export default function Login() {
       console.log("Challenge verified by backend successfully.");
       const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
       const user = userCredential.user;
+
       if (!user.emailVerified) {
         Alert.alert(
           "Email Not Verified",
@@ -115,14 +111,35 @@ export default function Login() {
             { text: "Resend Link", onPress: async () => {
                 try { await sendEmailVerification(user); Alert.alert("Link Sent", "Verification link resent."); }
                 catch (e) { Alert.alert("Error", "Could not resend link."); }
-                finally { await auth.signOut(); setLoading(false); setChallengeToken(null); }
+                finally { await signOut(auth); setLoading(false); setChallengeToken(null); }
             }},
-            { text: "OK", onPress: async () => { await auth.signOut(); setLoading(false); setChallengeToken(null); }, style: "cancel" },
+            { text: "OK", onPress: async () => { await signOut(auth); setLoading(false); setChallengeToken(null); }, style: "cancel" },
           ], { cancelable: false });
         return;
       }
       console.log("User logged in and email verified:", user.email);
-      router.replace("/");
+
+      const db = getDatabase();
+      const userTotpRef = ref(db, `users/${user.uid}/totp`);
+      const totpSnapshot = await get(userTotpRef);
+
+      if (totpSnapshot.exists() && totpSnapshot.val().enabled === true && totpSnapshot.val().setupComplete === true) {
+        console.log("TOTP is enabled for this user. Navigating to TOTP verification.");
+        router.replace({
+          pathname: "/verify-totp",
+          params: { userId: user.uid, userEmail: user.email },
+        });
+      } else {
+        console.log("TOTP not enabled or setup incomplete. Proceeding to main app.");
+        const userPetDataRef = ref(db, `users/${user.uid}`);
+        const petDataSnapshot = await get(userPetDataRef);
+        if (petDataSnapshot.exists() && petDataSnapshot.val().petName) {
+            router.replace("/petfeeder");
+        } else {
+            router.replace("/");
+        }
+      }
+
     } catch (error: any) {
       let errorMessage = "An unknown login error occurred.";
        if (error.code) {

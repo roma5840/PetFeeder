@@ -1,3 +1,6 @@
+// v12:
+// added TOTP 2FA
+
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
@@ -41,6 +44,8 @@ import {
   orderByChild,
   equalTo,
 } from "firebase/database";
+
+import QRCode from 'react-native-qrcode-svg';
 
 const timeToMinutes = (timeStr) => {
     if (!timeStr || typeof timeStr !== 'string') return Infinity;
@@ -139,6 +144,23 @@ export default function PetFeeder() {
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [isLoadingNotes, setIsLoadingNotes] = useState(true);
   const notesListenerUnsubscribe = useRef(null);
+
+  const [showTotpManagementModal, setShowTotpManagementModal] = useState(false);
+  const [totpStep, setTotpStep] = useState('initial'); // initial, setupQr, verifySetup, showRecovery, manage
+  const [totpSecret, setTotpSecret] = useState('');
+  const [totpQrUri, setTotpQrUri] = useState('');
+  const [totpVerificationCode, setTotpVerificationCode] = useState('');
+  const [plainRecoveryCodes, setPlainRecoveryCodes] = useState([]);
+  const [userTotpConfig, setUserTotpConfig] = useState(null); // to store fetched { enabled, encryptedSecret, iv, hashedRecoveryCodes, setupComplete }
+  const [isTotpLoading, setIsTotpLoading] = useState(false);
+  const [confirmSavedRecoveryCodes, setConfirmSavedRecoveryCodes] = useState(false);
+
+  const [showReauthModal, setShowReauthModal] = useState(false);
+  const [reauthPassword, setReauthPassword] = useState('');
+  const [reauthAction, setReauthAction] = useState(null);
+  const [isReauthenticating, setIsReauthenticating] = useState(false);
+
+  const CLOUDFLARE_WORKER_TOTP_URL = "https://petfeeder-totp-auth.ryanoliver565.workers.dev"; 
 
   const [nextScheduledFeedInfo, setNextScheduledFeedInfo] = useState({ time: "N/A", amount: ""});
 
@@ -408,6 +430,28 @@ export default function PetFeeder() {
         if (notesListenerUnsubscribe.current) { notesListenerUnsubscribe.current(); notesListenerUnsubscribe.current = null; }
     };
   }, [user, db, calculateRecommendedWeight]);
+
+  useEffect(() => {
+    if (user) {
+        const fetchUserTotpConfig = async () => {
+            const db = getDatabase();
+            const totpRef = ref(db, `users/${user.uid}/totp`);
+            try {
+                const snapshot = await get(totpRef);
+                if (snapshot.exists()) {
+                    setUserTotpConfig(snapshot.val());
+                } else {
+                    setUserTotpConfig({ enabled: false, setupComplete: false });
+                }
+            } catch (error) {
+                // console.error("Error fetching TOTP config:", error);
+                setUserTotpConfig({ enabled: false, setupComplete: false });
+            }
+        };
+        fetchUserTotpConfig();
+    }
+}, [user, db]);
+
 
   useEffect(() => {
     const applyFilterAndGenerateChart = () => {
@@ -1035,6 +1079,208 @@ export default function PetFeeder() {
     }
   };
 
+  const openTotpManagement = () => {
+    setShowSettingsModal(false);
+    if (userTotpConfig?.enabled && userTotpConfig?.setupComplete) {
+        setTotpStep('manage');
+    } else {
+        setTotpStep('initial');
+    }
+    setTotpVerificationCode('');
+    setPlainRecoveryCodes([]);
+    setConfirmSavedRecoveryCodes(false);
+    setShowTotpManagementModal(true);
+  };
+
+  const handleStartTotpSetup = async () => {
+      if (!user) return;
+      setIsTotpLoading(true);
+      try {
+          const response = await fetch(`${CLOUDFLARE_WORKER_TOTP_URL}/totp/generate?email=${encodeURIComponent(user.email)}`, {
+              method: 'GET',
+          });
+          const data = await response.json();
+          if (response.ok) {
+              setTotpSecret(data.secret);
+              setTotpQrUri(data.otpauthUri);
+              setTotpStep('setupQr');
+          } else {
+              Alert.alert("Error", data.error || "Could not generate TOTP secret.");
+          }
+      } catch (error) {
+          // console.error("Error starting TOTP setup:", error);
+          Alert.alert("Error", "Failed to connect to server for TOTP setup.");
+      } finally {
+          setIsTotpLoading(false);
+      }
+  };
+
+  const handleVerifyAndEnableTotp = async () => {
+      if (!user || !totpSecret || !totpVerificationCode) return;
+      setIsTotpLoading(true);
+      try {
+          const response = await fetch(`${CLOUDFLARE_WORKER_TOTP_URL}/totp/verify-and-enable`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  secret: totpSecret,
+                  token: totpVerificationCode,
+                  userEmail: user.email
+              }),
+          });
+          const data = await response.json();
+          if (response.ok) {
+              const db = getDatabase();
+              const totpDataToSave = {
+                  enabled: true,
+                  setupComplete: true,
+                  encryptedSecret: data.encryptedSecret,
+                  iv: data.iv,
+                  hashedRecoveryCodes: data.hashedRecoveryCodes,
+              };
+              await set(ref(db, `users/${user.uid}/totp`), totpDataToSave);
+              setUserTotpConfig(totpDataToSave);
+              setPlainRecoveryCodes(data.recoveryCodes);
+              setTotpStep('showRecovery');
+              // Alert.alert("Success", "2FA enabled! Please save your recovery codes.");
+          } else {
+              Alert.alert("Verification Failed", data.error || "Invalid verification code.");
+          }
+      } catch (error) {
+          // console.error("Error enabling TOTP:", error);
+          Alert.alert("Error", "Failed to enable 2FA.");
+      } finally {
+          setIsTotpLoading(false);
+      }
+  };
+
+  const handleFinishTotpSetup = () => {
+      if (!confirmSavedRecoveryCodes) {
+          Alert.alert("Confirmation Needed", "Please confirm you have saved your recovery codes.");
+          return;
+      }
+      setShowTotpManagementModal(false);
+      setTotpStep('initial');
+
+      setTotpSecret('');
+      setTotpQrUri('');
+      setTotpVerificationCode('');
+      setPlainRecoveryCodes([]);
+      setConfirmSavedRecoveryCodes(false);
+  };
+
+  const promptReauthentication = (action) => {
+      setReauthAction(action);
+      setReauthPassword('');
+      setShowTotpManagementModal(false);
+      setShowReauthModal(true);
+  };
+
+  const handleReauthentication = async () => {
+      if (!reauthPassword) {
+          Alert.alert("Input Required", "Please enter your current password.");
+          return;
+      }
+      if (!user || !user.email) {
+          Alert.alert("Error", "User session error.");
+          return;
+      }
+      setIsReauthenticating(true);
+      Keyboard.dismiss();
+      try {
+          const credential = EmailAuthProvider.credential(user.email, reauthPassword);
+          await reauthenticateWithCredential(user, credential);
+          setShowReauthModal(false);
+          setReauthPassword('');
+          if (reauthAction === 'disableTotp') {
+              await executeDisableTotp();
+          } else if (reauthAction === 'regenerateRecovery') {
+              await executeRegenerateRecoveryCodes();
+          } else if (reauthAction === 'viewRecovery') {
+              Alert.alert("Re-authenticated", "You can now manage recovery codes (e.g., regenerate).");
+              setShowTotpManagementModal(true);
+              setTotpStep('manage');
+          }
+      } catch (error) {
+          // console.error("Reauthentication failed:", error);
+          let message = "Reauthentication failed. Please check your password.";
+          if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+              message = "Incorrect password.";
+          }
+          Alert.alert("Authentication Error", message);
+      } finally {
+          setIsReauthenticating(false);
+          // setReauthAction(null);
+      }
+  };
+
+
+  const executeDisableTotp = async () => {
+      if (!user) return;
+      Alert.alert(
+          "Confirm Disable 2FA",
+          "Are you sure you want to disable Two-Factor Authentication? Your account will be less secure.",
+          [
+              { text: "Cancel", style: "cancel", onPress: () => { setShowTotpManagementModal(true); setTotpStep('manage');} },
+              {
+                  text: "Disable 2FA",
+                  style: "destructive",
+                  onPress: async () => {
+                      setIsTotpLoading(true);
+                      try {
+                          const db = getDatabase();
+                          await remove(ref(db, `users/${user.uid}/totp`));
+                          setUserTotpConfig({ enabled: false, setupComplete: false });
+                          setShowTotpManagementModal(false);
+                          setTotpStep('initial');
+                          Alert.alert("Success", "Two-Factor Authentication has been disabled.");
+                      } catch (error) {
+                          // console.error("Error disabling TOTP:", error);
+                          Alert.alert("Error", "Failed to disable 2FA.");
+                      } finally {
+                          setIsTotpLoading(false);
+                          setReauthAction(null);
+                      }
+                  },
+              },
+          ]
+      );
+  };
+
+  const executeRegenerateRecoveryCodes = async () => {
+      if (!user) return;
+      setIsTotpLoading(true);
+      try {
+          const response = await fetch(`${CLOUDFLARE_WORKER_TOTP_URL}/totp/regenerate-recovery`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: user.uid })
+          });
+          const data = await response.json();
+          if (response.ok) {
+              const db = getDatabase();
+              await update(ref(db, `users/${user.uid}/totp`), {
+                  hashedRecoveryCodes: data.hashedRecoveryCodes,
+              });
+              setUserTotpConfig(prev => ({...prev, hashedRecoveryCodes: data.hashedRecoveryCodes}));
+              setPlainRecoveryCodes(data.recoveryCodes);
+              setConfirmSavedRecoveryCodes(false);
+              setTotpStep('showRecovery');
+              setShowTotpManagementModal(true);
+              // Alert.alert("Success", "New recovery codes generated. Please save them securely. Your old codes are now invalid.");
+          } else {
+              Alert.alert("Error", data.error || "Could not regenerate recovery codes.");
+          }
+      } catch (error) {
+          // console.error("Error regenerating recovery codes:", error);
+          Alert.alert("Error", "Failed to connect to server for regenerating codes.");
+      } finally {
+          setIsTotpLoading(false);
+          setReauthAction(null);
+      }
+  };
+
+
 
   if (isLoading) {
     return (
@@ -1382,6 +1628,13 @@ export default function PetFeeder() {
                     <Text style={styles.settingsMenuItemText}>Change Password</Text>
                     <Icon name="chevron-forward-outline" size={22} style={styles.settingsMenuChevron} />
                 </TouchableOpacity>
+                <TouchableOpacity style={styles.settingsMenuItem} onPress={openTotpManagement} disabled={isSaving || isTotpLoading}>
+                  <Icon name={userTotpConfig?.enabled ? "shield-checkmark-outline" : "shield-outline"} size={22} style={styles.settingsMenuItemIcon} />
+                  <Text style={styles.settingsMenuItemText}>
+                    {userTotpConfig?.enabled ? "Manage 2FA" : "Enable 2FA"}
+                  </Text>
+                  <Icon name="chevron-forward-outline" size={22} style={styles.settingsMenuChevron} />
+                </TouchableOpacity>
                 <View style={styles.modalSection}>
                     <Text style={styles.modalSectionHeader}>Delete Account</Text>
                     <TouchableOpacity style={[styles.modalButton, styles.modalDeleteButton, isSaving && styles.buttonDisabled]} onPress={handleDeleteAccount} disabled={isSaving}>
@@ -1629,6 +1882,155 @@ export default function PetFeeder() {
         </View>
       </Modal>
 
+      {/* Re-authentication Modal */}
+      <Modal visible={showReauthModal} transparent={true} animationType="fade" onRequestClose={() => !isReauthenticating && setShowReauthModal(false)}>
+          <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                  <TouchableOpacity style={styles.modalBackButton} onPress={() => {setShowReauthModal(false); setReauthAction(null); setShowTotpManagementModal(true); setTotpStep('manage');}} disabled={isReauthenticating}>
+                      <Icon name="arrow-back-outline" size={24} color={themeColors.primary} />
+                  </TouchableOpacity>
+                  <Icon name="lock-closed-outline" size={30} color={themeColors.primary} style={{ marginBottom: 10 }} />
+                  <Text style={styles.modalTitle}>Re-authenticate</Text>
+                  <Text style={styles.modalText}>Please enter your current password to continue.</Text>
+                  <View style={styles.passwordInputContainer}>
+                      <TextInput
+                          style={styles.passwordInputText}
+                          placeholder="Current Password"
+                          placeholderTextColor={themeColors.textMuted}
+                          value={reauthPassword}
+                          onChangeText={setReauthPassword}
+                          secureTextEntry={true}
+                          editable={!isReauthenticating}
+                      />
+                  </View>
+                  <TouchableOpacity
+                      style={[styles.modalButton, styles.modalPrimaryButton, isReauthenticating && styles.buttonDisabled]}
+                      onPress={handleReauthentication}
+                      disabled={isReauthenticating || !reauthPassword}
+                  >
+                      {isReauthenticating ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.modalButtonText}>Continue</Text>}
+                  </TouchableOpacity>
+              </View>
+          </View>
+      </Modal>
+
+
+      {/* TOTP Management Modal */}
+      <Modal visible={showTotpManagementModal} transparent={true} animationType="fade" onRequestClose={() => !isTotpLoading && setShowTotpManagementModal(false)}>
+          <View style={styles.modalOverlay}>
+              <View style={[styles.modalContent, {minHeight: 300}]}>
+                  <TouchableOpacity style={styles.modalBackButton} onPress={() => {setShowTotpManagementModal(false); setTotpStep('initial');}} disabled={isTotpLoading}>
+                      <Icon name="close-outline" size={28} color={themeColors.primary} />
+                  </TouchableOpacity>
+                  <Icon name="shield-checkmark-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
+                  <Text style={styles.modalTitle}>Two-Factor Authentication</Text>
+
+                  {isTotpLoading && <ActivityIndicator size="large" color={themeColors.primary} style={{marginVertical: 20}}/>}
+
+                  {!isTotpLoading && totpStep === 'initial' && (
+                      <>
+                          <Text style={styles.modalText}>
+                              Protect your account by enabling Two-Factor Authentication (2FA).
+                              You'll use an authenticator app (like Google Authenticator, Authy, etc.)
+                              to generate a unique code each time you log in.
+                          </Text>
+                          <TouchableOpacity style={[styles.modalButton, styles.modalPrimaryButton]} onPress={handleStartTotpSetup}>
+                              <Text style={styles.modalButtonText}>Start 2FA Setup</Text>
+                          </TouchableOpacity>
+                      </>
+                  )}
+
+                  {!isTotpLoading && totpStep === 'setupQr' && (
+                      <>
+                          <Text style={styles.modalText}>Scan this QR code with your authenticator app:</Text>
+                          {totpQrUri ? (
+                              <View style={{ alignItems: 'center', marginVertical: 15, padding:10, backgroundColor: 'white', borderWidth:1, borderColor: themeColors.borderColor }}>
+                                  <QRCode value={totpQrUri} size={180} backgroundColor="white" color="black"/>
+                              </View>
+                          ) : <Text>Loading QR Code...</Text>}
+                          <Text style={styles.modalText}>Or, manually enter this key: <Text style={{fontWeight: 'bold'}}>{totpSecret}</Text></Text>
+                          <Text style={styles.modalText}>Enter the 6-digit code from your app below:</Text>
+                          <TextInput
+                              style={styles.modalInput}
+                              placeholder="Verification Code (e.g., 123456)"
+                              placeholderTextColor={themeColors.textMuted}
+                              value={totpVerificationCode}
+                              onChangeText={setTotpVerificationCode}
+                              keyboardType="number-pad"
+                              maxLength={6}
+                          />
+                          <TouchableOpacity
+                              style={[styles.modalButton, styles.modalPrimaryButton, (!totpVerificationCode || totpVerificationCode.length !== 6) && styles.buttonDisabled]}
+                              onPress={handleVerifyAndEnableTotp}
+                              disabled={!totpVerificationCode || totpVerificationCode.length !== 6}
+                          >
+                              <Text style={styles.modalButtonText}>Verify & Enable 2FA</Text>
+                          </TouchableOpacity>
+                      </>
+                  )}
+
+                  {!isTotpLoading && totpStep === 'showRecovery' && (
+                      <ScrollView style={{width: '100%', maxHeight: Dimensions.get('window').height * 0.5}}>
+                          <Text style={[styles.modalText, {color: themeColors.danger, fontWeight: 'bold'}]}>
+                              IMPORTANT: Save these recovery codes in a safe place.
+                          </Text>
+                          <Text style={styles.modalText}>
+                              If you lose access to your authenticator app, these codes are the ONLY way to regain access to your account. Each code can only be used once.
+                          </Text>
+                          <View style={styles.recoveryCodesContainer}>
+                              {plainRecoveryCodes.map((code, index) => (
+                                  <Text key={index} style={styles.recoveryCodeItem}>{code}</Text>
+                              ))}
+                          </View>
+                          <View style={styles.checkboxContainer}>
+                              <Switch
+                                  value={confirmSavedRecoveryCodes}
+                                  onValueChange={setConfirmSavedRecoveryCodes}
+                                  trackColor={{ false: "#D1C4E9", true: themeColors.light }}
+                                  thumbColor={confirmSavedRecoveryCodes ? themeColors.primary : "#f4f3f4"}
+                              />
+                              <Text style={styles.checkboxLabel}>I have saved these codes securely.</Text>
+                          </View>
+                          <TouchableOpacity
+                              style={[styles.modalButton, styles.modalPrimaryButton, !confirmSavedRecoveryCodes && styles.buttonDisabled]}
+                              onPress={handleFinishTotpSetup}
+                              disabled={!confirmSavedRecoveryCodes}
+                          >
+                              <Text style={styles.modalButtonText}>Done</Text>
+                          </TouchableOpacity>
+                      </ScrollView>
+                  )}
+                  
+                  {!isTotpLoading && totpStep === 'manage' && userTotpConfig?.enabled && (
+                      <>
+                          <Text style={[styles.modalText, {textAlign: 'center', marginBottom: 20, color: themeColors.success, fontWeight: 'bold'}]}>
+                              Two-Factor Authentication is currently ENABLED.
+                          </Text>
+                          <TouchableOpacity
+                              style={[styles.modalButton, {backgroundColor: themeColors.info, marginBottom: 10}]}
+                              onPress={() => promptReauthentication('regenerateRecovery')}
+                          >
+                              <Icon name="refresh-circle-outline" size={20} color="#fff" style={{marginRight: 8}}/>
+                              <Text style={styles.modalButtonText}>Regenerate Recovery Codes</Text>
+                          </TouchableOpacity>
+                          <Text style={styles.modalNoteSmall}>This will invalidate your old recovery codes. Requires password re-authentication.</Text>
+
+
+                          <TouchableOpacity
+                              style={[styles.modalButton, styles.modalDeleteButton, {marginTop: 20}]}
+                              onPress={() => promptReauthentication('disableTotp')}
+                          >
+                              <Icon name="shield-outline" size={20} color="#fff" style={{marginRight: 8}}/>
+                              <Text style={styles.modalButtonText}>Disable 2FA</Text>
+                          </TouchableOpacity>
+                          <Text style={styles.modalNoteSmall}>Requires password re-authentication.</Text>
+                      </>
+                  )}
+
+              </View>
+          </View>
+      </Modal>
+
 
     </ScrollView>
   );
@@ -1652,6 +2054,8 @@ const themeColors = {
   warning: '#FFC107', // yellow
   info: '#17A2B8',    // teal/blue
   warningMutedPurple: '#A98BBD',
+  successLight: '#D4EDDA',
+  totpModalBackground: '#FFFFFF', 
 };
 
 const styles = StyleSheet.create({
@@ -2327,4 +2731,34 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: themeColors.textPrimary,
   },
+  recoveryCodesContainer: {
+    backgroundColor: themeColors.background,
+    padding: 15,
+    borderRadius: 8,
+    marginVertical: 15,
+    borderWidth: 1,
+    borderColor: themeColors.borderColor,
+  },
+  recoveryCodeItem: {
+      fontSize: 16,
+      color: themeColors.textPrimary,
+      paddingVertical: 5,
+      fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+      textAlign: 'center',
+      letterSpacing: 1,
+  },
+  checkboxContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginVertical: 15,
+      width: '100%',
+      justifyContent: 'center',
+  },
+  checkboxLabel: {
+      marginLeft: 10,
+      fontSize: 15,
+      color: themeColors.textSecondary,
+      flexShrink: 1,
+  },
+
 });
