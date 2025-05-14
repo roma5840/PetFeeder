@@ -1,14 +1,3 @@
-// UPDATED PETFEEDER UI
-// Changes made by me (Ryan):
-
-// v8:
-// PETFEEDER UI OVERHAUL
-
-// v8.1:
-// add password checklist in change password & show eye button
-
-// v9:
-// add manual setting of food level
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
@@ -23,9 +12,12 @@ import {
   ActivityIndicator,
   ScrollView,
   Keyboard,
+  Dimensions,
+  Platform,
 } from "react-native";
 import Icon from "react-native-vector-icons/Ionicons";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import { LineChart } from "react-native-chart-kit";
 import {
   getAuth,
   deleteUser,
@@ -45,7 +37,33 @@ import {
   query,
   orderByKey,
   limitToLast,
+  push,
+  orderByChild,
+  equalTo,
 } from "firebase/database";
+
+const timeToMinutes = (timeStr) => {
+    if (!timeStr || typeof timeStr !== 'string') return Infinity;
+    try {
+        const lowerTime = timeStr.toLowerCase().trim();
+        const isPM = lowerTime.includes('pm');
+        const isAM = lowerTime.includes('am');
+        const timePart = lowerTime.replace(/am|pm/g, '').trim();
+        let [hours, minutes] = timePart.split(':').map(Number);
+
+        if (isNaN(hours) || isNaN(minutes)) return Infinity;
+
+        if (isPM && hours !== 12) { hours += 12; }
+        else if (isAM && hours === 12) { hours = 0; }
+        else if (!isAM && !isPM && hours === 24) { hours = 0; }
+
+        return hours * 60 + minutes;
+    } catch (e) {
+        console.error("Error parsing schedule time for sort/compare:", timeStr, e);
+        return Infinity;
+    }
+};
+
 
 export default function PetFeeder() {
   const [petName, setPetName] = useState("");
@@ -57,13 +75,13 @@ export default function PetFeeder() {
   const [showPicker, setShowPicker] = useState(false);
   const [schedules, setSchedules] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false); 
+  const [isSaving, setIsSaving] = useState(false);
   const [isFeeding, setIsFeeding] = useState(false);
 
   const [showFeedingGuideModal, setShowFeedingGuideModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showUpdatePetModal, setShowUpdatePetModal] = useState(false);
-  const [showAccountModal, setShowAccountModal] = useState(false); 
+  const [showAccountModal, setShowAccountModal] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
 
   const [currentPassword, setCurrentPassword] = useState('');
@@ -103,6 +121,33 @@ export default function PetFeeder() {
 
   const [gramsToAdd, setGramsToAdd] = useState('');
 
+  const [showHistoryFilterModal, setShowHistoryFilterModal] = useState(false);
+  const [historyFilterConfig, setHistoryFilterConfig] = useState({
+    type: 'all',
+    startDate: null,
+    endDate: null,
+  });
+  const [tempHistoryFilterConfig, setTempHistoryFilterConfig] = useState(historyFilterConfig);
+  const [showHistoryStartDatePicker, setShowHistoryStartDatePicker] = useState(false);
+  const [showHistoryEndDatePicker, setShowHistoryEndDatePicker] = useState(false);
+  const [filteredFeedingHistory, setFilteredFeedingHistory] = useState([]);
+
+  const [petNotes, setPetNotes] = useState([]);
+  const [showPetNotesModal, setShowPetNotesModal] = useState(false);
+  const [currentNoteText, setCurrentNoteText] = useState('');
+  const [editingNote, setEditingNote] = useState(null);
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const [isLoadingNotes, setIsLoadingNotes] = useState(true);
+  const notesListenerUnsubscribe = useRef(null);
+
+  const [nextScheduledFeedInfo, setNextScheduledFeedInfo] = useState({ time: "N/A", amount: ""});
+
+  const [chartData, setChartData] = useState({
+    labels: [],
+    datasets: [{ data: [0], color: (opacity = 1) => themeColors.accent, strokeWidth: 2 }],
+    legend: ["Daily Consumption (g)"]
+  });
+
   const statusListenerUnsubscribe = useRef(null);
   const schedulesListenerUnsubscribe = useRef(null);
   const historyListenerUnsubscribe = useRef(null);
@@ -124,29 +169,32 @@ export default function PetFeeder() {
   }, []);
 
 
-
-useEffect(() => {
+  useEffect(() => {
     if (!user) {
         console.log("useEffect: No user found, skipping listener attachment.");
         setIsLoading(false);
         setIsLoadingHistory(false);
+        setIsLoadingNotes(false);
         if (statusListenerUnsubscribe.current) { statusListenerUnsubscribe.current(); statusListenerUnsubscribe.current = null; }
         if (schedulesListenerUnsubscribe.current) { schedulesListenerUnsubscribe.current(); schedulesListenerUnsubscribe.current = null; }
         if (historyListenerUnsubscribe.current) { historyListenerUnsubscribe.current(); historyListenerUnsubscribe.current = null; }
         if (foodConfigListenerUnsubscribe.current) { foodConfigListenerUnsubscribe.current(); foodConfigListenerUnsubscribe.current = null; }
+        if (notesListenerUnsubscribe.current) { notesListenerUnsubscribe.current(); notesListenerUnsubscribe.current = null; }
         lastProcessedFeedTimestampRef.current = null;
         return;
     }
 
-    console.log(`%cuseEffect: RUNNING for user ${user.uid}. Current foodLevel in state: ${currentFoodLevel}`, 'color: blue; font-weight: bold;');
+    console.log(`%cuseEffect: RUNNING for user ${user.uid}.`, 'color: blue; font-weight: bold;');
     setIsLoading(true);
     setIsLoadingHistory(true);
+    setIsLoadingNotes(true);
 
     let initialBaseDataFetched = false;
     let statusListenerReady = false;
     let schedulesListenerReady = false;
     let historyListenerReady = false;
     let foodConfigListenerReady = false;
+    let notesListenerReady = false;
 
     const userBaseRef = ref(db, `users/${user.uid}`);
     const statusRefPath = `users/${user.uid}/feederStatus`;
@@ -154,18 +202,17 @@ useEffect(() => {
     const historyQuery = query(
         ref(db, `users/${user.uid}/feedingHistory`),
         orderByKey(),
-        limitToLast(20)
+        // limitToLast(100)
     );
     const foodConfigRefPath = `users/${user.uid}/feederConfig`;
+    const notesRefPath = `users/${user.uid}/petNotes`;
+
 
     const checkAllLoaded = () => {
-        console.log(`%cuseEffect: checkAllLoaded: Base=${initialBaseDataFetched}, Status=${statusListenerReady}, Schedules=${schedulesListenerReady}, History=${historyListenerReady}, FoodConfig=${foodConfigListenerReady}`, 'color: gray');
-        if (initialBaseDataFetched && statusListenerReady && schedulesListenerReady && historyListenerReady && foodConfigListenerReady) {
+        console.log(`%cuseEffect: checkAllLoaded: Base=${initialBaseDataFetched}, Status=${statusListenerReady}, Schedules=${schedulesListenerReady}, History=${historyListenerReady}, FoodConfig=${foodConfigListenerReady}, Notes=${notesListenerReady}`, 'color: gray');
+        if (initialBaseDataFetched && statusListenerReady && schedulesListenerReady && historyListenerReady && foodConfigListenerReady && notesListenerReady) {
             console.log("%cuseEffect: All data and listeners ready, setting loading false.", 'color: green; font-weight: bold;');
             setIsLoading(false);
-            // setIsLoadingHistory(false)
-        } else {
-            // console.log("useEffect: Not all data/listeners ready yet.");
         }
     };
 
@@ -190,11 +237,10 @@ useEffect(() => {
             checkAllLoaded();
         }
     }).catch(error => {
-        console.error("useEffect: Error fetching initial pet data:", error);
+        // console.error("useEffect: Error fetching initial pet data:", error);
         Alert.alert("Error", "Could not fetch pet details.");
         if (!initialBaseDataFetched) {
             initialBaseDataFetched = true;
-            console.log("useEffect: BaseData ERRORED but marked as fetched for loading.");
             checkAllLoaded();
         }
     });
@@ -202,19 +248,14 @@ useEffect(() => {
     console.log(`useEffect: Attaching food config listener to ${foodConfigRefPath}`);
     foodConfigListenerUnsubscribe.current = onValue(ref(db, foodConfigRefPath), (snapshot) => {
         console.log("useEffect: Food config data received from Firebase.");
-        if (snapshot.exists()) {
-            const configData = snapshot.val();
-            // console.log("Food config snapshot data:", configData);
+        const configData = snapshot.val();
+        if (configData) {
             setCurrentFoodLevel(configData.currentFoodLevel !== undefined ? configData.currentFoodLevel : 0);
             setHopperCapacity(configData.hopperCapacity !== undefined ? configData.hopperCapacity : 1000);
         } else {
-            console.log("useEffect: No food config data in Firebase, using local defaults & attempting to set in Firebase.");
+            console.log("useEffect: No food config data in Firebase, using local defaults.");
             setCurrentFoodLevel(0);
             setHopperCapacity(1000);
-
-            // set(ref(db, foodConfigRefPath), { currentFoodLevel: 0, hopperCapacity: 1000 })
-            //     .then(() => console.log("Initial food config set in Firebase (was missing)."))
-            //     .catch(err => console.warn("Failed to set initial food config in Firebase:", err));
         }
         if (!foodConfigListenerReady) {
             foodConfigListenerReady = true;
@@ -223,11 +264,9 @@ useEffect(() => {
         }
     }, (error) => {
         // console.error(`useEffect: Error listening to food config at ${foodConfigRefPath}:`, error);
-        // Alert.alert("Error", "Could not load food hopper settings.");
         setCurrentFoodLevel(0); setHopperCapacity(1000);
         if (!foodConfigListenerReady) {
             foodConfigListenerReady = true;
-            console.log("useEffect: FoodConfigListener ERRORED but marked READY.");
             checkAllLoaded();
         }
     });
@@ -237,7 +276,6 @@ useEffect(() => {
         console.log("useEffect: Feeder status data received from Firebase.");
         if (snapshot.exists()) {
             const statusData = snapshot.val();
-            // console.log("Feeder status snapshot data:", statusData);
             setFeederOnline(statusData.isOnline || false);
             setFeederError(statusData.error || "None");
 
@@ -245,7 +283,6 @@ useEffect(() => {
             const lastFeedAmountStr = statusData.lastFeedAmount;
 
             if (lastProcessedFeedTimestampRef.current === null && lastFeedTimestamp && !statusListenerReady) {
-                // console.log(`%cStatusListener: Initializing lastProcessedFeedTimestampRef.current to ${lastFeedTimestamp} (from first data load this cycle). No deduction will occur for this timestamp.`, 'color: purple');
                 lastProcessedFeedTimestampRef.current = lastFeedTimestamp;
             }
 
@@ -254,28 +291,33 @@ useEffect(() => {
                 const amountForDisplay = lastFeedAmountStr || 'N/A';
                 if (!isNaN(date.getTime())) {
                     setLastFeedInfo(`${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${amountForDisplay}g)`);
-                    if (lastProcessedFeedTimestampRef.current !== lastFeedTimestamp) {
-                        const amountDispensed = parseFloat(lastFeedAmountStr);
-                        if (!isNaN(amountDispensed) && amountDispensed > 0) {
-                            const newCalculatedLevel = Math.max(0, currentFoodLevel - amountDispensed);
-                            console.log(`Food DEDUCTION: In-memory foodLevel: ${currentFoodLevel}g, Dispensed by ESP: ${amountDispensed}g, New calculated: ${newCalculatedLevel}g. ESP Timestamp: ${lastFeedTimestamp}`);
+                    get(ref(db, foodConfigRefPath)).then(foodConfigSnapshot => {
+                        if (foodConfigSnapshot.exists()) {
+                            const currentActualFoodLevel = foodConfigSnapshot.val().currentFoodLevel;
+                            if (lastProcessedFeedTimestampRef.current !== lastFeedTimestamp) {
+                                const amountDispensed = parseFloat(lastFeedAmountStr);
+                                if (!isNaN(amountDispensed) && amountDispensed > 0) {
+                                    const newCalculatedLevel = Math.max(0, currentActualFoodLevel - amountDispensed);
+                                    console.log(`Food DEDUCTION: DB foodLevel: ${currentActualFoodLevel}g, Dispensed by ESP: ${amountDispensed}g, New calculated: ${newCalculatedLevel}g. ESP Timestamp: ${lastFeedTimestamp}`);
 
-                            update(ref(db, foodConfigRefPath), { currentFoodLevel: newCalculatedLevel })
-                                .then(() => {
-                                    console.log(`Firebase foodLevel updated to ${newCalculatedLevel}g. Marking timestamp ${lastFeedTimestamp} as processed.`);
-                                    lastProcessedFeedTimestampRef.current = lastFeedTimestamp;
-                                })
-                                .catch(error => {
-                                    console.error("CRITICAL: Failed to update food level in Firebase after deduction:", error);
-                                    Alert.alert("Food Level Sync Error", "Failed to update food level after feed. It may be inaccurate.");
-                                });
-                        } else { /* console.warn("Invalid amountDispensed from ESP for deduction:", lastFeedAmountStr); */ }
-                    } else { /* console.log("Feed event timestamp " + lastFeedTimestamp + " already processed or no change."); */ }
+                                    update(ref(db, foodConfigRefPath), { currentFoodLevel: newCalculatedLevel })
+                                        .then(() => {
+                                            console.log(`Firebase foodLevel updated to ${newCalculatedLevel}g. Marking timestamp ${lastFeedTimestamp} as processed.`);
+                                            lastProcessedFeedTimestampRef.current = lastFeedTimestamp;
+                                        })
+                                        .catch(error => {
+                                            // console.error("CRITICAL: Failed to update food level in Firebase after deduction:", error);
+                                            Alert.alert("Food Level Sync Error", "Failed to update food level after feed. It may be inaccurate.");
+                                        });
+                                }
+                            }
+                        }
+                    });
+
                 } else { setLastFeedInfo("Invalid Date"); console.warn("Invalid lastFeedTimestamp:", statusData.lastFeedTimestamp); }
             } else { setLastFeedInfo("N/A"); }
 
             if (lastProcessedFeedTimestampRef.current === null && statusData.lastFeedTimestamp) {
-                console.log("Initializing lastProcessedFeedTimestampRef.current to (on first status load):", statusData.lastFeedTimestamp);
                 lastProcessedFeedTimestampRef.current = statusData.lastFeedTimestamp;
             }
         } else {
@@ -291,16 +333,15 @@ useEffect(() => {
         // console.error(`useEffect: Error listening to feeder status at ${statusRefPath}:`, error);
         if (!statusListenerReady) {
             statusListenerReady = true;
-            console.log("useEffect: StatusListener ERRORED but marked READY.");
             checkAllLoaded();
         }
     });
 
     console.log(`useEffect: Attaching schedules listener to ${schedulesRefPath}`);
     schedulesListenerUnsubscribe.current = onValue(ref(db, schedulesRefPath), (snapshot) => {
-        // console.log("useEffect: Schedules data received.");
         const schedulesData = snapshot.val();
-        setSchedules(Array.isArray(schedulesData) ? schedulesData : (schedulesData ? Object.values(schedulesData) : []));
+        const loadedSchedules = Array.isArray(schedulesData) ? schedulesData : (schedulesData ? Object.values(schedulesData) : []);
+        setSchedules(loadedSchedules.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time)));
         if (!schedulesListenerReady) {
             schedulesListenerReady = true;
             console.log("useEffect: SchedulesListener READY.");
@@ -310,18 +351,16 @@ useEffect(() => {
         // console.error(`useEffect: Error listening to schedules at ${schedulesRefPath}:`, error);
         if (!schedulesListenerReady) {
             schedulesListenerReady = true;
-            console.log("useEffect: SchedulesListener ERRORED but marked READY.");
             checkAllLoaded();
         }
     });
 
     console.log(`useEffect: Attaching history listener.`);
     historyListenerUnsubscribe.current = onValue(historyQuery, (snapshot) => {
-        // console.log("useEffect: Feeding history data received.");
         const historyData = snapshot.val();
         const historyArray = historyData ? Object.keys(historyData).map(key => ({ id: key, timestamp: parseInt(key, 10), ...historyData[key] })).filter(item => !isNaN(item.timestamp)).sort((a, b) => b.timestamp - a.timestamp) : [];
         setFeedingHistory(historyArray);
-        setIsLoadingHistory(false); 
+        setIsLoadingHistory(false);
         if (!historyListenerReady) {
             historyListenerReady = true;
             console.log("useEffect: HistoryListener READY.");
@@ -332,10 +371,33 @@ useEffect(() => {
         setIsLoadingHistory(false);
         if (!historyListenerReady) {
             historyListenerReady = true;
-            console.log("useEffect: HistoryListener ERRORED but marked READY.");
             checkAllLoaded();
         }
     });
+
+    console.log(`useEffect: Attaching pet notes listener to ${notesRefPath}`);
+    notesListenerUnsubscribe.current = onValue(query(ref(db, notesRefPath), orderByKey()), (snapshot) => { // orderByChild('timestamp') if notes have a server timestamp
+        const notesData = snapshot.val();
+        const loadedNotes = notesData ? Object.keys(notesData)
+            .map(key => ({ id: key, ...notesData[key] }))
+            .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+            : [];
+        setPetNotes(loadedNotes);
+        setIsLoadingNotes(false);
+        if (!notesListenerReady) {
+            notesListenerReady = true;
+            console.log("useEffect: PetNotesListener READY.");
+            checkAllLoaded();
+        }
+    }, (error) => {
+        // console.error("useEffect: Error listening to pet notes:", error);
+        setIsLoadingNotes(false);
+        if (!notesListenerReady) {
+            notesListenerReady = true;
+            checkAllLoaded();
+        }
+    });
+
 
     return () => {
         console.log(`%cuseEffect: CLEANUP for user ${user?.uid}. Detaching listeners.`, 'color: orange;');
@@ -343,8 +405,125 @@ useEffect(() => {
         if (schedulesListenerUnsubscribe.current) { schedulesListenerUnsubscribe.current(); schedulesListenerUnsubscribe.current = null; }
         if (historyListenerUnsubscribe.current) { historyListenerUnsubscribe.current(); historyListenerUnsubscribe.current = null; }
         if (foodConfigListenerUnsubscribe.current) { foodConfigListenerUnsubscribe.current(); foodConfigListenerUnsubscribe.current = null; }
+        if (notesListenerUnsubscribe.current) { notesListenerUnsubscribe.current(); notesListenerUnsubscribe.current = null; }
     };
-}, [user, db, calculateRecommendedWeight, currentFoodLevel]);
+  }, [user, db, calculateRecommendedWeight]);
+
+  useEffect(() => {
+    const applyFilterAndGenerateChart = () => {
+        let tempFiltered = [...feedingHistory];
+
+        if (historyFilterConfig.type !== 'all' && feedingHistory.length > 0) {
+            const now = new Date();
+            let startDate = new Date();
+            let endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+            if (historyFilterConfig.type === 'last7days') {
+                startDate.setDate(now.getDate() - 6);
+                startDate.setHours(0,0,0,0);
+            } else if (historyFilterConfig.type === 'last30days') {
+                startDate.setDate(now.getDate() - 29);
+                startDate.setHours(0,0,0,0);
+            } else if (historyFilterConfig.type === 'custom' && historyFilterConfig.startDate && historyFilterConfig.endDate) {
+                startDate = new Date(historyFilterConfig.startDate);
+                startDate.setHours(0,0,0,0);
+                endDate = new Date(historyFilterConfig.endDate);
+                endDate.setHours(23,59,59,999);
+            } else if (historyFilterConfig.type === 'custom' && historyFilterConfig.startDate) {
+                startDate = new Date(historyFilterConfig.startDate);
+                startDate.setHours(0,0,0,0);
+            }
+
+
+            tempFiltered = feedingHistory.filter(item => {
+                const itemDate = new Date(item.timestamp);
+                if (historyFilterConfig.type === 'custom') {
+                    const startOk = historyFilterConfig.startDate ? itemDate >= startDate : true;
+                    const endOk = historyFilterConfig.endDate ? itemDate <= endDate : (historyFilterConfig.startDate ? itemDate <= new Date(new Date(historyFilterConfig.startDate).setHours(23,59,59,999)) : true) ;
+                     if(historyFilterConfig.startDate && !historyFilterConfig.endDate) {
+                        const singleDayStart = new Date(historyFilterConfig.startDate);
+                        singleDayStart.setHours(0,0,0,0);
+                        const singleDayEnd = new Date(historyFilterConfig.startDate);
+                        singleDayEnd.setHours(23,59,59,999);
+                        return itemDate >= singleDayStart && itemDate <= singleDayEnd;
+                    }
+                    return startOk && endOk;
+                }
+                return itemDate >= startDate && itemDate <= endDate;
+            });
+        }
+        setFilteredFeedingHistory(tempFiltered.slice(0, 20)); // limit for display list
+
+        const dailyTotals = {};
+        tempFiltered.forEach(item => {
+            const date = new Date(item.timestamp).toLocaleDateString('en-CA'); // YYYY-MM-DD for sorting/grouping
+            dailyTotals[date] = (dailyTotals[date] || 0) + (parseFloat(item.amount) || 0);
+        });
+
+        const sortedDates = Object.keys(dailyTotals).sort();
+        const chartLabels = sortedDates.map(date => {
+            const d = new Date(date);
+            return `${d.getMonth() + 1}/${d.getDate()}`; // MM/DD
+        });
+        const chartDatasetData = sortedDates.map(date => dailyTotals[date]);
+
+        if (chartLabels.length > 0) {
+            setChartData({
+                labels: chartLabels.slice(-7),
+                datasets: [{ data: chartDatasetData.slice(-7), color: (opacity = 1) => themeColors.accent, strokeWidth: 2 }],
+                legend: ["Daily Consumption (g)"]
+            });
+        } else {
+            setChartData({ labels: ["No Data"], datasets: [{ data: [0], color: (opacity = 1) => themeColors.accent, strokeWidth: 2 }], legend: ["Daily Consumption (g)"] });
+        }
+
+    };
+    applyFilterAndGenerateChart();
+  }, [feedingHistory, historyFilterConfig]);
+
+  useEffect(() => {
+    const calculateNext = () => {
+        if (!feederOnline) {
+            setNextScheduledFeedInfo({ time: "Feeder Offline", amount: "" });
+            return;
+        }
+        const activeSchedules = schedules
+            .filter(s => s.isOn && parseInt(s.weight) <= currentFoodLevel)
+            .sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+
+        if (activeSchedules.length === 0) {
+            const anyActiveSchedule = schedules.find(s => s.isOn);
+            if(anyActiveSchedule && parseInt(anyActiveSchedule.weight) > currentFoodLevel) {
+                 setNextScheduledFeedInfo({ time: "Low Food", amount: `(${anyActiveSchedule.weight}g needed)`});
+            } else {
+                 setNextScheduledFeedInfo({ time: "No Active Schedules", amount: "" });
+            }
+            return;
+        }
+
+        const now = new Date();
+        const currentTimeInMinutes = now.getHours() * 60 + now.getMinutes();
+
+        let nextFeed = null;
+        for (const sched of activeSchedules) {
+            const scheduleTimeInMinutes = timeToMinutes(sched.time);
+            if (scheduleTimeInMinutes >= currentTimeInMinutes) {
+                nextFeed = sched;
+                break;
+            }
+        }
+
+        if (!nextFeed) {
+            nextFeed = activeSchedules[0];
+            setNextScheduledFeedInfo({ time: `Tomorrow at ${nextFeed.time}`, amount: `(${nextFeed.weight}g)`});
+        } else {
+            setNextScheduledFeedInfo({ time: `Today at ${nextFeed.time}`, amount: `(${nextFeed.weight}g)`});
+        }
+    };
+
+    calculateNext();
+  }, [schedules, currentFoodLevel, feederOnline]);
+
 
   const handleAddFeedingTime = () => {
     if (!manualWeight || isNaN(parseInt(manualWeight)) || parseInt(manualWeight) <= 0) {
@@ -372,19 +551,26 @@ useEffect(() => {
         isOn: true,
       };
 
-      const updatedSchedules = [...schedules, newSchedule];
-      setSchedules(updatedSchedules);
+      const isDuplicateTime = schedules.some(s => s.time === newSchedule.time);
+      if (isDuplicateTime) {
+          Alert.alert("Duplicate Time", "A schedule for this time already exists. Please choose a different time or edit the existing one.");
+          setSelectedTime(new Date());
+          return;
+      }
+
+      const updatedSchedules = [...schedules, newSchedule].sort((a,b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+      // setSchedules(updatedSchedules);
       setIsSaving(true);
 
       if (user) {
         const newScheduleRef = ref(db, `users/${user.uid}/schedules/${newSchedule.id}`);
         try {
           await set(newScheduleRef, newSchedule);
-          // Alert.alert("Success", "Schedule added!"); // optional success message
+          // Alert.alert("Success", "Schedule added!");
         } catch (error) {
-          console.error("Error saving schedule:", error);
+          // console.error("Error saving schedule:", error);
           Alert.alert("Error", "Failed to save schedule. Please try again.");
-          setSchedules(schedules.filter(s => s.id !== newSchedule.id));
+          // setSchedules(schedules.filter(s => s.id !== newSchedule.id));
         } finally {
           setIsSaving(false);
         }
@@ -403,7 +589,7 @@ useEffect(() => {
   if (newIsOnState && scheduledAmount > currentFoodLevel) {
       Alert.alert(
           "Low Food",
-          `There isn't enough food (${currentFoodLevel}g) in the hopper for this ${scheduledAmount}g schedule. Please refill or adjust the schedule. Turn on anyway?`,
+          `There isn't enough food (${currentFoodLevel}g) in the hopper for this ${scheduledAmount}g schedule. Please refill or adjust. Turn on anyway?`,
           [
               { text: "Cancel", style: "cancel" },
               { text: "Turn On Anyway", onPress: () => proceedWithToggle(id, newIsOnState) }
@@ -414,32 +600,20 @@ useEffect(() => {
   proceedWithToggle(id, newIsOnState);
 };
 
-const proceedWithToggle = async (id, newIsOnState) => {
-    const scheduleIndex = schedules.findIndex((item) => item.id === id);
-    if (scheduleIndex === -1) return;
-
-    const scheduleToUpdate = schedules[scheduleIndex];
-    const updatedSchedule = { ...scheduleToUpdate, isOn: newIsOnState };
-
-    const originalSchedules = [...schedules];
-    const updatedSchedulesList = [...schedules];
-    updatedSchedulesList[scheduleIndex] = updatedSchedule;
-    setSchedules(updatedSchedulesList);
-
-    setIsSaving(true);
-    if (user) {
-        const scheduleRef = ref(db, `users/${user.uid}/schedules/${id}`);
-        try {
-            await update(scheduleRef, { isOn: updatedSchedule.isOn });
-        } catch (error) {
-            console.error("Error updating schedule toggle:", error);
-            Alert.alert("Error", "Failed to update schedule status.");
-            setSchedules(originalSchedules);
-        } finally {
-            setIsSaving(false);
-        }
-    }
-};
+  const proceedWithToggle = async (id, newIsOnState) => {
+      setIsSaving(true);
+      if (user) {
+          const scheduleRef = ref(db, `users/${user.uid}/schedules/${id}`);
+          try {
+              await update(scheduleRef, { isOn: newIsOnState });
+          } catch (error) {
+              // console.error("Error updating schedule toggle:", error);
+              Alert.alert("Error", "Failed to update schedule status.");
+          } finally {
+              setIsSaving(false);
+          }
+      }
+  };
 
   const deleteSchedule = async (id) => {
     Alert.alert(
@@ -451,19 +625,14 @@ const proceedWithToggle = async (id, newIsOnState) => {
             text: "Delete",
             style: "destructive",
             onPress: async () => {
-                const originalSchedules = [...schedules];
-                const updatedSchedules = schedules.filter((item) => item.id !== id);
-                setSchedules(updatedSchedules);
-
                 setIsSaving(true);
                 if (user) {
                   const scheduleRef = ref(db, `users/${user.uid}/schedules/${id}`);
                   try {
                     await remove(scheduleRef);
                   } catch (error) {
-                    console.error("Error deleting schedule:", error);
+                    // console.error("Error deleting schedule:", error);
                     Alert.alert("Error", "Failed to delete schedule.");
-                    setSchedules(originalSchedules);
                   } finally {
                     setIsSaving(false);
                   }
@@ -472,7 +641,6 @@ const proceedWithToggle = async (id, newIsOnState) => {
           },
         ]
       );
-
   };
 
   const handleManualWeightChange = (text) => {
@@ -508,6 +676,10 @@ const proceedWithToggle = async (id, newIsOnState) => {
       Alert.alert("Invalid Amount", "Please enter a valid positive feeding weight (g).");
       return;
     }
+     if (feedAmount > currentFoodLevel) {
+      Alert.alert("Low Food", `Not enough food (${currentFoodLevel}g) for a ${feedAmount}g serving. Please refill or reduce amount.`);
+      return;
+    }
     if (!user) {
       Alert.alert("Error", "User not logged in.");
       return;
@@ -521,7 +693,7 @@ const proceedWithToggle = async (id, newIsOnState) => {
       });
       Alert.alert("Command Sent", `${feedAmount}g feed command sent to the feeder.`);
     } catch (error) {
-      console.error("Error sending feed command:", error);
+      // console.error("Error sending feed command:", error);
       Alert.alert("Error", "Failed to send feed command. Check connection.");
     } finally {
       setIsFeeding(false);
@@ -542,8 +714,7 @@ const proceedWithToggle = async (id, newIsOnState) => {
     setCurrentPassword('');
     setNewPassword('');
     setConfirmNewPassword('');
-
-    setShowSettingsModal(false); 
+    setShowSettingsModal(false);
     setShowAccountModal(true);
   };
 
@@ -551,162 +722,108 @@ const proceedWithToggle = async (id, newIsOnState) => {
     setCurrentPassword('');
     setNewPassword('');
     setConfirmNewPassword('');
-    // close the main account settings modal (optional)
-    // setShowAccountModal(false);
     setShowChangePasswordModal(true);
   };
 
-
   const handleSaveChanges = async () => {
-    console.log("handleSaveChanges triggered");
     if (!tempPetDetails.name.trim() || !tempPetDetails.type.trim() || !tempPetDetails.weight.trim()) {
         Alert.alert("Missing Information", "Please fill in all pet details.");
-        console.log("Validation failed: Missing fields");
         return;
     }
     const weightRegex = /^\d{1,3}(\.\d{1,2})?$/;
     if (!weightRegex.test(tempPetDetails.weight) || tempPetDetails.weight === '.') {
          Alert.alert("Invalid Weight", "Please enter a valid weight format (e.g., 10.5 or 15). Max 3 digits before decimal, 2 after.");
-         console.log("Validation failed: Invalid weight format", tempPetDetails.weight);
          return;
     }
     const numericWeight = parseFloat(tempPetDetails.weight);
-    if (isNaN(numericWeight)) {
-        Alert.alert("Invalid Weight", "Please enter a valid number for weight.");
-        console.log("Validation failed: Weight is NaN");
-        return;
-    }
-    if (numericWeight <= 0) {
-        Alert.alert("Invalid Weight", "Weight must be greater than zero.");
-        console.log("Validation failed: Weight <= 0");
+    if (isNaN(numericWeight) || numericWeight <= 0) {
+        Alert.alert("Invalid Weight", "Weight must be a positive number.");
         return;
     }
     if (numericWeight >= 155) {
-        console.log("Weight >= 155, showing confirmation alert.");
         Alert.alert(
             "Confirm Pet Weight",
             `Are you sure your pet weighs ${numericWeight} kg?\n\nFun Fact: The heaviest dog, Aicama Zorba, weighed 155.6 kg; and the heaviest domestic cat, Himmy, weighed 21.3 kg!`,
             [
-                { text: "No", style: "cancel", onPress: () => console.log("Weight confirmation cancelled by user."), },
-                { text: "Yes", onPress: () => { console.log("Weight confirmed by user, proceeding to save..."); proceedWithSave(); } },
+                { text: "No", style: "cancel" },
+                { text: "Yes", onPress: proceedWithSave },
             ],
             { cancelable: false }
         );
     } else {
-        console.log("Weight < 155, proceeding directly to save...");
         proceedWithSave();
     }
   };
 
   const proceedWithSave = async () => {
-    console.log("proceedWithSave called");
     if (!auth.currentUser) {
       Alert.alert("Error", "User session not found. Please log in again.");
       return;
     }
     const currentUid = auth.currentUser.uid;
     setIsSaving(true);
-    console.log("Setting isSaving to true");
     const userRef = ref(db, `users/${currentUid}`);
     const updates = {
       petName: tempPetDetails.name.trim(),
       petType: tempPetDetails.type,
       petWeight: tempPetDetails.weight,
     };
-    console.log("Update payload:", updates);
     try {
-      console.log("Attempting Firebase update...");
       await update(userRef, updates);
-      console.log("Firebase update successful.");
       setPetName(updates.petName);
       setPetType(updates.petType);
       setPetWeight(updates.petWeight);
-      const newRecWeight = calculateRecommendedWeight(updates.petWeight);
-      setRecommendedWeight(newRecWeight);
-      console.log("Local state updated.");
+      setRecommendedWeight(calculateRecommendedWeight(updates.petWeight));
 
-      // setShowUpdatePetModal(false);
-      // console.log("Modal closed.");
       setTimeout(() => {
         Alert.alert(
           "Success",
           "Pet details updated.",
-          [
-            {
-              text: "OK",
-              onPress: () => {
+          [ { text: "OK", onPress: () => {
                 setShowUpdatePetModal(false);
-                setShowSettingsModal(true);
+                // setShowSettingsModal(true);
               }
             }
-          ],
-          { cancelable: false }
+          ], { cancelable: false }
         );
       }, 100);
 
     } catch (error) {
-      console.error("Error updating pet details:", error);
-      Alert.alert("Error", "Failed to update pet details. Please check your connection and try again.");
+      // console.error("Error updating pet details:", error);
+      Alert.alert("Error", "Failed to update pet details.");
     } finally {
-      console.log("Setting isSaving to false");
       setIsSaving(false);
     }
   };
 
   const handleLogout = async () => {
-    console.log("handleLogout: Initiated.");
-
-    if (statusListenerUnsubscribe.current) { try { statusListenerUnsubscribe.current(); } catch (e) { console.error("Logout detach status error:", e); } statusListenerUnsubscribe.current = null; }
-    if (schedulesListenerUnsubscribe.current) { try { schedulesListenerUnsubscribe.current(); } catch (e) { console.error("Logout detach schedules error:", e); } schedulesListenerUnsubscribe.current = null; }
-    if (historyListenerUnsubscribe.current) { try { historyListenerUnsubscribe.current(); } catch (e) { console.error("Logout detach history error:", e); } historyListenerUnsubscribe.current = null; }
-
     try {
-        console.log("handleLogout: Calling signOut...");
         await signOut(auth);
-        console.log("handleLogout: SignOut successful.");
     } catch (error) {
         Alert.alert("Error", "Failed to log out. Please try again.");
-        console.error("handleLogout: SignOut error:", error);
+        // console.error("handleLogout: SignOut error:", error);
     }
   };
 
   const handleDeleteAccount = () => {
     const userToDelete = auth.currentUser;
-    if (!userToDelete) {
-      Alert.alert("Error", "User not found. Cannot delete account.");
-      return;
-    }
+    if (!userToDelete) return;
 
     Alert.alert(
       "Confirm Delete Account",
-      "Are you sure? This will permanently delete your account and all associated data. This action cannot be undone.",
+      "This will permanently delete your account and all associated data. This action cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Delete Permanently",
           style: "destructive",
           onPress: async () => {
-            console.log(`handleDeleteAccount: Initiated for user ${userToDelete.uid}.`);
-            setIsSaving(true); 
-
-            console.log("handleDeleteAccount: Attempting to detach listeners...");
-            if (statusListenerUnsubscribe.current) { try { statusListenerUnsubscribe.current(); } catch(e) { console.error("Delete detach status error:", e); } statusListenerUnsubscribe.current = null; }
-            if (schedulesListenerUnsubscribe.current) { try { schedulesListenerUnsubscribe.current(); } catch (e) { console.error("Delete detach schedules error:", e); } schedulesListenerUnsubscribe.current = null; }
-            if (historyListenerUnsubscribe.current) { try { historyListenerUnsubscribe.current(); } catch (e) { console.error("Delete detach history error:", e); } historyListenerUnsubscribe.current = null; }
-
+            setIsSaving(true);
             try {
-              console.log("handleDeleteAccount: Deleting database data...");
               const userRef = ref(db, `users/${userToDelete.uid}`);
               await remove(userRef);
-              console.log("handleDeleteAccount: Database data deleted successfully.");
-
-              console.log("handleDeleteAccount: Deleting auth user...");
               await deleteUser(userToDelete);
-              console.log("handleDeleteAccount: Auth user deleted successfully.");
-
-
             } catch (error) {
-              // console.error("handleDeleteAccount: Error during deletion process:", error);
               let errorMessage = `Failed to delete account. Please try again.`;
                if (error.code === 'auth/requires-recent-login') {
                   errorMessage = 'This operation requires a recent login. Please log out and log back in to delete your account.';
@@ -719,110 +836,55 @@ const proceedWithToggle = async (id, newIsOnState) => {
             }
           },
         },
-      ],
-      { cancelable: false }
+      ], { cancelable: false }
     );
   };
 
   const handleChangePassword = async () => {
     const user = auth.currentUser;
-    if (!user) {
-      Alert.alert("Error", "User not found. Please log in again.");
-      return;
-    }
-
+    if (!user) return;
     if (!currentPassword || !newPassword || !confirmNewPassword) {
       Alert.alert("Missing Information", "Please fill in all password fields.");
       return;
     }
-
     if (newPassword !== confirmNewPassword) {
       Alert.alert("Password Mismatch", "New passwords do not match.");
       return;
     }
-
-    if (newPassword.length < 6) {
-        Alert.alert("Weak Password", "New password must be at least 6 characters long.");
-        return;
-    }
-
-    const isNewPasswordValid =
-        newPassHasMinLength &&
-        newPassHasUpperCase &&
-        newPassHasLowerCase &&
-        newPassHasNumber &&
-        newPassHasSpecialChar &&
-        newPasswordsMatch;
-
+    const isNewPasswordValid = newPassHasMinLength && newPassHasUpperCase && newPassHasLowerCase && newPassHasNumber && newPassHasSpecialChar;
     if (!isNewPasswordValid) {
-      Alert.alert(
-        "Invalid New Password",
-        "Please ensure your new password meets all the requirements and that the passwords match."
-      );
+      Alert.alert("Invalid New Password", "Please ensure your new password meets all requirements.");
       return;
     }
 
-
     Keyboard.dismiss();
     setIsChangingPassword(true);
-
     try {
-      console.log("handleChangePassword: Attempting re-authentication...");
       const credential = EmailAuthProvider.credential(user.email, currentPassword);
       await reauthenticateWithCredential(user, credential);
-      console.log("handleChangePassword: Re-authentication successful.");
-
-      console.log("handleChangePassword: Attempting to update password...");
       await updatePassword(user, newPassword);
-      console.log("handleChangePassword: Password updated successfully.");
-
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmNewPassword('');
+      setCurrentPassword(''); setNewPassword(''); setConfirmNewPassword('');
       setShowChangePasswordModal(false);
-      // close the modal / let user close it
-      // setShowAccountModal(false);
-
-      Alert.alert(
-        "Password Changed",
-        "Your password has been successfully updated."
-      );
-
+      Alert.alert("Password Changed", "Your password has been successfully updated.");
     } catch (error) {
-      let errorMessage = "Failed to change password. Please try again.";
-      if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-        errorMessage = "Incorrect current password.";
-      } else if (error.code === 'auth/weak-password') {
-        errorMessage = "The new password is too weak. Please choose a stronger password.";
-      } else if (error.code === 'auth/requires-recent-login') {
-        errorMessage = "This operation requires a recent login. Please log out and log back in to change your password.";
-      } else if (error.message) {
-        errorMessage = `Password change failed: ${error.message}`;
-      }
+      let errorMessage = "Failed to change password.";
+      if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') errorMessage = "Incorrect current password.";
+      else if (error.code === 'auth/weak-password') errorMessage = "New password is too weak.";
+      else if (error.code === 'auth/requires-recent-login') errorMessage = "This operation requires a recent login. Please log out and log back in.";
+      else if (error.message) errorMessage = `Password change failed: ${error.message}`;
       Alert.alert("Update Error", errorMessage);
-      // setNewPassword('');
-      // setConfirmNewPassword('');
     } finally {
       setIsChangingPassword(false);
     }
   };
 
-  const validateNewPassword = (pass: string, confirmPass: string) => {
-    const minLength = pass.length >= 6;
-    const upperCase = /[A-Z]/.test(pass);
-    const lowerCase = /[a-z]/.test(pass);
-    const number = /[0-9]/.test(pass);
-    const specialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(pass);
-    const match = pass === confirmPass && pass.length > 0;
-
-    setNewPassHasMinLength(minLength);
-    setNewPassHasUpperCase(upperCase);
-    setNewPassHasLowerCase(lowerCase);
-    setNewPassHasNumber(number);
-    setNewPassHasSpecialChar(specialChar);
-    setNewPasswordsMatch(match);
-
-    return minLength && upperCase && lowerCase && number && specialChar && match;
+  const validateNewPassword = (pass, confirmPass) => {
+    setNewPassHasMinLength(pass.length >= 6);
+    setNewPassHasUpperCase(/[A-Z]/.test(pass));
+    setNewPassHasLowerCase(/[a-z]/.test(pass));
+    setNewPassHasNumber(/[0-9]/.test(pass));
+    setNewPassHasSpecialChar(/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(pass));
+    setNewPasswordsMatch(pass === confirmPass && pass.length > 0);
   };
 
 
@@ -830,12 +892,9 @@ const proceedWithToggle = async (id, newIsOnState) => {
     if (!timestamp || isNaN(timestamp)) return "Invalid Date";
     try {
         const date = new Date(timestamp);
-         if (isNaN(date.getTime())) { return "Invalid Date"; }
-        const dateString = date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-        const timeString = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: true });
-        return `${dateString}, ${timeString}`;
+        if (isNaN(date.getTime())) return "Invalid Date";
+        return `${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: true })}`;
     } catch (e) {
-        console.error("Error formatting timestamp:", e, "Timestamp:", timestamp);
         return "Invalid Date";
     }
   };
@@ -843,14 +902,12 @@ const proceedWithToggle = async (id, newIsOnState) => {
   const openUpdateFoodLevelModal = () => {
     setTempInputFoodLevel(currentFoodLevel.toString());
     setTempInputHopperCapacity(hopperCapacity.toString());
+    setGramsToAdd('');
     setShowUpdateFoodLevelModal(true);
   };
 
   const handleSaveFoodLevel = async () => {
-    if (!user) {
-        Alert.alert("Error", "User not logged in.");
-        return;
-    }
+    if (!user) return;
     const newCurrentLevel = parseInt(tempInputFoodLevel, 10);
     const newHopperCapacity = parseInt(tempInputHopperCapacity, 10);
 
@@ -868,19 +925,13 @@ const proceedWithToggle = async (id, newIsOnState) => {
     }
 
     setIsSaving(true);
-    const foodConfigUpdates = {
-        currentFoodLevel: newCurrentLevel,
-        hopperCapacity: newHopperCapacity,
-    };
     const foodConfigPath = `users/${user.uid}/feederConfig`;
-
     try {
-        await update(ref(db, foodConfigPath), foodConfigUpdates);
+        await update(ref(db, foodConfigPath), { currentFoodLevel: newCurrentLevel, hopperCapacity: newHopperCapacity });
         setShowUpdateFoodLevelModal(false);
         Alert.alert("Success", "Food level and capacity updated.");
     } catch (error) {
-        console.error("Error updating food level/capacity:", error);
-        Alert.alert("Error", "Failed to update food level. Please try again.");
+        Alert.alert("Error", "Failed to update food level.");
     } finally {
         setIsSaving(false);
     }
@@ -893,32 +944,103 @@ const proceedWithToggle = async (id, newIsOnState) => {
       setGramsToAdd('');
       return;
     }
-
-    const currentTempLevel = parseInt(tempInputFoodLevel, 10) || 0; 
-    const capacity = parseInt(tempInputHopperCapacity, 10) || 0; 
-
+    const currentTempLevel = parseInt(tempInputFoodLevel, 10) || 0;
+    const capacity = parseInt(tempInputHopperCapacity, 10) || 0;
     if (capacity <= 0) {
         Alert.alert("Set Capacity", "Please set a valid hopper capacity first.");
         return;
     }
-
     let newLevel = currentTempLevel + toAdd;
     if (newLevel > capacity) {
       newLevel = capacity;
       Alert.alert("Hopper Full", `Food level capped at ${capacity}g capacity.`);
     }
-
     setTempInputFoodLevel(newLevel.toString());
     setGramsToAdd('');
   };
 
+  const handleSavePetNote = async () => {
+    if (!currentNoteText.trim()) {
+        Alert.alert("Empty Note", "Cannot save an empty note.");
+        return;
+    }
+    if (!user) return;
+    setIsSavingNote(true);
+    const notesRef = ref(db, `users/${user.uid}/petNotes`);
+    try {
+        if (editingNote) {
+            const noteToUpdateRef = ref(db, `users/${user.uid}/petNotes/${editingNote.id}`);
+            await update(noteToUpdateRef, { text: currentNoteText.trim(), timestamp: editingNote.timestamp });
+        } else {
+            const newNoteRef = push(notesRef);
+            await set(newNoteRef, { text: currentNoteText.trim(), timestamp: Date.now() });
+        }
+        setCurrentNoteText('');
+        setEditingNote(null);
+        // setShowPetNotesModal(false);
+        Alert.alert("Success", editingNote ? "Note updated." : "Note added.");
+    } catch (error) {
+        // console.error("Error saving pet note:", error);
+        Alert.alert("Error", "Failed to save note.");
+    } finally {
+        setIsSavingNote(false);
+    }
+  };
+
+  const openEditPetNote = (note) => {
+    setEditingNote(note);
+    setCurrentNoteText(note.text);
+  };
+
+  const handleDeletePetNote = async (noteId) => {
+    if (!user) return;
+    Alert.alert("Delete Note", "Are you sure you want to delete this note?", [
+        { text: "Cancel", style: "cancel" },
+        {
+            text: "Delete", style: "destructive",
+            onPress: async () => {
+                setIsSavingNote(true);
+                const noteRef = ref(db, `users/${user.uid}/petNotes/${noteId}`);
+                try {
+                    await remove(noteRef);
+                    if (editingNote && editingNote.id === noteId) {
+                        setEditingNote(null);
+                        setCurrentNoteText('');
+                    }
+                } catch (error) {
+                    Alert.alert("Error", "Failed to delete note.");
+                } finally {
+                    setIsSavingNote(false);
+                }
+            }
+        }
+    ]);
+  };
+
+  const handleApplyHistoryFilter = () => {
+    setHistoryFilterConfig(tempHistoryFilterConfig);
+    setShowHistoryFilterModal(false);
+  };
+
+  const onHistoryDateChange = (event, selectedDate, type) => {
+    if (type === 'start') setShowHistoryStartDatePicker(false);
+    if (type === 'end') setShowHistoryEndDatePicker(false);
+
+    if (event.type === 'set' && selectedDate) {
+        if (type === 'start') {
+            setTempHistoryFilterConfig(prev => ({ ...prev, startDate: selectedDate, type: 'custom' }));
+        } else if (type === 'end') {
+            setTempHistoryFilterConfig(prev => ({ ...prev, endDate: selectedDate, type: 'custom' }));
+        }
+    }
+  };
 
 
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#A06CD5" />
-        <Text>Loading Pet Feeder...</Text>
+        <ActivityIndicator size="large" color={themeColors.primary} />
+        <Text style={styles.loadingText}>Loading Pet Feeder...</Text>
       </View>
     );
   }
@@ -928,118 +1050,113 @@ const proceedWithToggle = async (id, newIsOnState) => {
 
       {/* Header */}
       <View style={styles.headerContainer}>
-        <Icon name="paw" size={32} color={styles.themePalette.primary.color} style={styles.headerIcon} />
+        <Icon name="paw" size={32} color={themeColors.primary} style={styles.headerIcon} />
         <Text style={styles.headerTitle}>Dashboard</Text>
         <TouchableOpacity onPress={() => setShowSettingsModal(true)} style={styles.settingsButton}>
-            <Icon name="settings-sharp" size={26} color={styles.themePalette.primary.color} />
+            <Icon name="settings-sharp" size={28} color={themeColors.primary} />
         </TouchableOpacity>
       </View>
 
-      {/* Pet Details Section */}
+      {/* Dashboard Summary Card */}
+      <View style={[styles.sectionCard, styles.summaryCard]}>
+        <View style={styles.summaryRow}>
+            <View style={styles.summaryItem}>
+                <Icon name={feederOnline ? "checkmark-circle" : "alert-circle"} size={28} color={feederOnline ? themeColors.success : themeColors.danger} />
+                <Text style={[styles.summaryText, { color: feederOnline ? themeColors.success : themeColors.danger }]}>
+                    {feederOnline ? 'Feeder Online' : 'Feeder Offline'}
+                </Text>
+            </View>
+            <View style={styles.summaryItem}>
+                <Icon name="cube" size={28} color={currentFoodLevel < (hopperCapacity * 0.1) ? themeColors.warning : themeColors.accent} />
+                <Text style={styles.summaryText}>
+                    {currentFoodLevel}g / {hopperCapacity}g
+                </Text>
+                 <TouchableOpacity onPress={openUpdateFoodLevelModal} style={styles.inlineEditButton}>
+                    <Icon name="pencil-outline" size={18} color={themeColors.primary} />
+                </TouchableOpacity>
+            </View>
+        </View>
+        <View style={styles.summaryRow}>
+            <View style={styles.summaryItem}>
+                <Icon name="time" size={28} color={themeColors.info} />
+                <Text style={styles.summaryText}>Last: {lastFeedInfo}</Text>
+            </View>
+            <View style={styles.summaryItem}>
+                <Icon name="hourglass" size={28} color={themeColors.primary} />
+                <Text style={styles.summaryText} numberOfLines={2}>
+                    Next: {nextScheduledFeedInfo.time} {nextScheduledFeedInfo.amount}
+                </Text>
+            </View>
+        </View>
+        {feederError !== "None" && (
+            <View style={[styles.detailRow, { marginTop: 10, justifyContent: 'center'}]}>
+                <Icon name="warning-outline" size={20} style={[styles.detailIcon, { color: themeColors.danger }]} />
+                <Text style={[styles.infoTextLabel, styles.errorText]}>Feeder Alert: </Text>
+                <Text style={[styles.infoTextValue, styles.errorText]}>{feederError}</Text>
+            </View>
+         )}
+      </View>
+
+      {/* Pet Details Card */}
       <View style={styles.sectionCard}>
          <View style={styles.sectionHeader}>
-            <Icon name="information-circle-outline" size={24} color={styles.themePalette.primary.color} />
+            <Icon name="heart-outline" size={24} color={themeColors.primary} />
             <Text style={styles.sectionTitle}>Pet Details</Text>
+            <TouchableOpacity onPress={openUpdateModal} style={styles.headerActionIcon}>
+                <Icon name="create-outline" size={22} color={themeColors.primary} />
+            </TouchableOpacity>
          </View>
          <View style={styles.detailRow}>
             <Icon name="paw-outline" size={20} style={styles.detailIcon} />
             <Text style={styles.infoTextLabel}>Name: </Text><Text style={styles.infoTextValue}>{petName}</Text>
          </View>
          <View style={styles.detailRow}>
-            <Icon name="apps-outline" size={20} style={styles.detailIcon} />
+            <Icon name="logo-octocat" size={20} style={styles.detailIcon} />
             <Text style={styles.infoTextLabel}>Type: </Text><Text style={styles.infoTextValue}>{petType}</Text>
          </View>
          <View style={styles.detailRow}>
             <Icon name="barbell-outline" size={20} style={styles.detailIcon} />
             <Text style={styles.infoTextLabel}>Weight: </Text><Text style={styles.infoTextValue}>{petWeight} kg</Text>
          </View>
+         <TouchableOpacity style={[styles.actionButton, styles.viewNotesButton, {marginTop: 15}]} onPress={() => setShowPetNotesModal(true)}>
+            <Icon name="document-text-outline" size={20} color={themeColors.primary} style={{ marginRight: 8 }}/>
+            <Text style={[styles.buttonText, {color: themeColors.primary}]}>View/Add Pet Notes</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Feeder Status Section */}
-       <View style={styles.sectionCard}>
-         <View style={styles.sectionHeader}>
-            <Icon name="pulse-outline" size={24} color={styles.themePalette.primary.color} />
-            <Text style={styles.sectionTitle}>Feeder Status</Text>
-         </View>
-         <View style={styles.statusRow}>
-            <Text style={styles.infoTextLabel}>Status: </Text>
-            <View style={[styles.statusIndicator, { backgroundColor: feederOnline ? styles.themePalette.success.color : styles.themePalette.danger.color }]} />
-            <Text style={[styles.infoTextValue, { marginLeft: 8, fontWeight: 'bold', color: feederOnline ? styles.themePalette.success.color : styles.themePalette.danger.color }]}>{feederOnline ? 'Online' : 'Offline'}</Text>
-         </View>
-        <View style={[styles.detailRow, { alignItems: 'center' }]}>
-            <Icon name="cube-outline" size={20} style={styles.detailIcon} />
-            <Text style={styles.infoTextLabel}>Food Level: </Text>
-            <Text style={styles.infoTextValue}>
-                {currentFoodLevel}g / {hopperCapacity}g
-                {hopperCapacity > 0 && ` (${Math.round((currentFoodLevel / hopperCapacity) * 100)}%)`}
-            </Text>
-            <TouchableOpacity onPress={openUpdateFoodLevelModal} style={{ marginLeft: 'auto', paddingVertical: 2, paddingHorizontal: 8 }}>
-                <Icon name="pencil-outline" size={20} color={styles.themePalette.primary.color} />
-            </TouchableOpacity>
-        </View>
-         <View style={styles.detailRow}>
-            <Icon name="time-outline" size={20} style={styles.detailIcon} />
-            <Text style={styles.infoTextLabel}>Last Feed: </Text><Text style={styles.infoTextValue}>{lastFeedInfo}</Text>
-         </View>
-         {feederError !== "None" && (
-            <View style={styles.detailRow}>
-                <Icon name="alert-circle-outline" size={20} style={[styles.detailIcon, { color: styles.themePalette.danger.color }]} />
-                <Text style={[styles.infoTextLabel, styles.errorText]}>Error: </Text><Text style={[styles.infoTextValue, styles.errorText]}>{feederError}</Text>
-            </View>
-         )}
-       </View>
-
-      {/* Feeding Control Section */}
+      {/* Feeding Control Card */}
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
-            <Icon name="restaurant-outline" size={24} color={styles.themePalette.primary.color} />
-            <Text style={styles.sectionTitle}>Feeding Control</Text>
-        </View>
-        <View style={styles.feedingRow}>
-            <Text style={styles.infoText}>Recommended: <Text style={{fontWeight: 'bold'}}>{recommendedWeight}g</Text> / meal</Text>
+            <Icon name="restaurant-outline" size={24} color={themeColors.primary} />
+            <Text style={styles.sectionTitle}>Manual Feed</Text>
             <TouchableOpacity style={styles.guideButton} onPress={() => setShowFeedingGuideModal(true)}>
-                <Icon name="help-circle-outline" size={18} color={styles.themePalette.primary.color} />
+                <Icon name="help-circle-outline" size={18} color={themeColors.primary} />
                 <Text style={styles.guideButtonText}>Guide</Text>
             </TouchableOpacity>
         </View>
-
+        <Text style={styles.infoText}>Recommended portion: <Text style={{fontWeight: 'bold'}}>{recommendedWeight}g</Text></Text>
         <TextInput
           style={styles.input}
-          placeholder={`Enter feeding weight (g), e.g. ${recommendedWeight !== 'N/A' ? recommendedWeight : '100'}`}
-          placeholderTextColor={styles.themePalette.textMuted.color}
+          placeholder={`Enter amount (g), e.g. ${recommendedWeight !== 'N/A' ? recommendedWeight : '100'}`}
+          placeholderTextColor={themeColors.textMuted}
           keyboardType="number-pad"
           value={manualWeight}
           onChangeText={handleManualWeightChange}
           maxLength={3}
         />
-
         <TouchableOpacity
             style={[
-              styles.actionButton,
-              styles.feedNowButton,
-              (
-                isFeeding ||
-                !feederOnline ||
-                (parseInt(manualWeight, 10) || 0) === 0 ||
-                (parseInt(manualWeight, 10) || 0) > currentFoodLevel
-              ) && styles.buttonDisabled
+              styles.actionButton, styles.feedNowButton,
+              (isFeeding || !feederOnline || (parseInt(manualWeight, 10) || 0) === 0 || (parseInt(manualWeight, 10) || 0) > currentFoodLevel) && styles.buttonDisabled
             ]}
             onPress={handleFeedNow}
-            disabled={
-              isFeeding ||
-              !feederOnline ||
-              (parseInt(manualWeight, 10) || 0) === 0 ||
-              (parseInt(manualWeight, 10) || 0) > currentFoodLevel
-            }
+            disabled={isFeeding || !feederOnline || (parseInt(manualWeight, 10) || 0) === 0 || (parseInt(manualWeight, 10) || 0) > currentFoodLevel}
         >
-            {isFeeding ? (
-                <ActivityIndicator size="small" color="#fff" />
-            ) : (
+            {isFeeding ? <ActivityIndicator size="small" color="#fff" /> : (
                 <>
                   <Icon name="play-circle-outline" size={20} color="#fff" style={{ marginRight: 8 }}/>
                   <Text style={styles.buttonText}>
-                    Feed Now ({manualWeight || '0'}g)
-                    {/* optional: show warning if low food for this amount */}
+                    Feed {manualWeight || '0'}g Now
                     {(parseInt(manualWeight, 10) || 0) > 0 && (parseInt(manualWeight, 10) || 0) > currentFoodLevel && " (Low Food!)"}
                   </Text>
                 </>
@@ -1047,112 +1164,117 @@ const proceedWithToggle = async (id, newIsOnState) => {
         </TouchableOpacity>
       </View>
 
-
-      {/* Schedule Section */}
+      {/* Schedule Section Card */}
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
-            <Icon name="calendar-outline" size={24} color={styles.themePalette.primary.color} />
+            <Icon name="calendar-outline" size={24} color={themeColors.primary} />
             <Text style={styles.sectionTitle}>Feeding Schedule</Text>
+            <TouchableOpacity onPress={handleAddFeedingTime} disabled={isSaving} style={styles.headerActionIcon}>
+              <Icon name="add-circle-outline" size={26} color={isSaving ? themeColors.textMuted : themeColors.primary}/>
+            </TouchableOpacity>
         </View>
-        <TouchableOpacity style={[styles.actionButton, styles.addTimeButton]} onPress={handleAddFeedingTime} disabled={isSaving}>
-          <Icon name="add-circle-outline" size={20} color="#fff" style={{ marginRight: 8 }}/>
-          <Text style={styles.buttonText}>Add Schedule Time</Text>
-        </TouchableOpacity>
-
-        {/* {isSaving && <ActivityIndicator size="small" color={styles.themePalette.primary.color} style={{ marginVertical: 10 }}/>} */}
-
+        {/* {isSaving && <ActivityIndicator size="small" color={themeColors.primary} style={{ marginVertical: 10 }}/>} */}
         {schedules.length === 0 && !isLoading && !isSaving ? (
-             <Text style={styles.emptyStateText}>No schedules added yet. Tap above to add one!</Text>
+             <Text style={styles.emptyStateText}>No schedules yet. Tap '+' to add.</Text>
         ) : (
             <FlatList
-              data={schedules.slice().sort((a, b) => {
-                const timeToMinutes = (timeStr) => {
-                    if (!timeStr || typeof timeStr !== 'string') return 0;
-                    try {
-                        const lowerTime = timeStr.toLowerCase().trim();
-                        const isPM = lowerTime.includes('pm');
-                        const isAM = lowerTime.includes('am');
-                        const timePart = lowerTime.replace('am', '').replace('pm', '').trim();
-                        let [hours, minutes] = timePart.split(':').map(Number);
-
-                        if (isNaN(hours) || isNaN(minutes)) return 0;
-
-                        if (isPM && hours !== 12) { hours += 12; }
-                        else if (isAM && hours === 12) { hours = 0; }
-                        if (hours === 24) hours = 0;
-
-                        return hours * 60 + minutes;
-                    } catch (e) {
-                        console.error("Error parsing schedule time for sort:", timeStr, e);
-                        return 0;
-                    }
-                };
-                const timeA = timeToMinutes(a.time);
-                const timeB = timeToMinutes(b.time);
-                return timeA - timeB;
-              })}
+              data={schedules}
               keyExtractor={(item) => item.id}
-
               renderItem={({ item }) => {
-              const scheduledAmount = parseInt(item.weight, 10) || 0;
-              const hasEnoughFood = currentFoodLevel >= scheduledAmount;
-              const lowFoodWarningColor = themeColors.warningMutedPurple;
+                const scheduledAmount = parseInt(item.weight, 10) || 0;
+                const hasEnoughFood = currentFoodLevel >= scheduledAmount;
+                const lowFoodWarningColor = themeColors.warningMutedPurple;
 
-              return (
-                <View style={styles.scheduleItem}>
-                    <Icon name="alarm-outline" size={24} color={hasEnoughFood ? themeColors.primary : lowFoodWarningColor} style={styles.scheduleIcon} />
-                    <View style={styles.scheduleInfo}>
-                        <Text style={[styles.scheduleTime, !hasEnoughFood && {color: lowFoodWarningColor }]}>{item.time}</Text>
-                        <Text style={[styles.scheduleWeight, !hasEnoughFood && {color: lowFoodWarningColor }]}>
-                          {item.weight}g
-                          {!hasEnoughFood && item.isOn && " (Low Food!)"}
-                        </Text>
+                return (
+                    <View style={styles.scheduleItem}>
+                        <Icon name="alarm-outline" size={24} color={item.isOn ? (hasEnoughFood ? themeColors.primary : lowFoodWarningColor) : themeColors.textMuted} style={styles.scheduleIcon} />
+                        <View style={styles.scheduleInfo}>
+                            <Text style={[styles.scheduleTime, !item.isOn && styles.scheduleTextDisabled, item.isOn && !hasEnoughFood && {color: lowFoodWarningColor }]}>{item.time}</Text>
+                            <Text style={[styles.scheduleWeight, !item.isOn && styles.scheduleTextDisabled, item.isOn && !hasEnoughFood && {color: lowFoodWarningColor }]}>
+                            {item.weight}g
+                            {item.isOn && !hasEnoughFood && " (Low Food!)"}
+                            </Text>
+                        </View>
+                        <View style={styles.scheduleControls}>
+                            <Switch
+                                trackColor={{ false: "#D1C4E9", true: hasEnoughFood ? themeColors.light : lowFoodWarningColor }}
+                                thumbColor={item.isOn ? (hasEnoughFood ? themeColors.primary : lowFoodWarningColor) : "#f4f3f4"}
+                                ios_backgroundColor="#E0E0E0"
+                                onValueChange={() => toggleSchedule(item.id, scheduledAmount)}
+                                value={item.isOn}
+                                disabled={isSaving}
+                                style={{ transform: [{ scaleX: .9 }, { scaleY: .9 }] }}
+                            />
+                            <TouchableOpacity onPress={() => deleteSchedule(item.id)} style={styles.deleteButton} disabled={isSaving}>
+                                <Icon name="trash-bin-outline" size={22} color={isSaving ? themeColors.textMuted : themeColors.danger} />
+                            </TouchableOpacity>
+                        </View>
                     </View>
-                    <View style={styles.scheduleControls}>
-                        <Switch
-                            trackColor={{ false: "#D1C4E9", true: hasEnoughFood ? themeColors.light : lowFoodWarningColor }} 
-                            thumbColor={item.isOn ? (hasEnoughFood ? themeColors.primary : lowFoodWarningColor) : "#f4f3f4"}
-                            ios_backgroundColor="#E0E0E0"
-                            onValueChange={() => toggleSchedule(item.id, scheduledAmount)}
-                            value={item.isOn}
-                            disabled={isSaving}
-                            style={{ transform: [{ scaleX: .9 }, { scaleY: .9 }] }}
-                        />
-                        <TouchableOpacity onPress={() => deleteSchedule(item.id)} style={styles.deleteButton} disabled={isSaving}>
-                            <Icon name="trash-bin-outline" size={22} color={isSaving ? styles.themePalette.textMuted.color : styles.themePalette.danger.color} />
-                        </TouchableOpacity>
-                    </View>
-                </View>
-              );
-          }}
-          scrollEnabled={false}
-          ItemSeparatorComponent={() => <View style={styles.listItemSeparator} />}
-        />
+                );
+              }}
+              scrollEnabled={false}
+              ItemSeparatorComponent={() => <View style={styles.listItemSeparator} />}
+            />
         )}
       </View>
 
-      {/* Feeding History Section */}
+      {/* Feeding History & Analytics Card */}
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
-            <Icon name="list-outline" size={24} color={styles.themePalette.primary.color} />
-            <Text style={styles.sectionTitle}>Feeding History (Last 20)</Text>
+            <Icon name="analytics-outline" size={24} color={themeColors.primary} />
+            <Text style={styles.sectionTitle}>History & Analytics</Text>
+            <TouchableOpacity onPress={() => { setTempHistoryFilterConfig(historyFilterConfig); setShowHistoryFilterModal(true);}} style={styles.headerActionIcon}>
+                <Icon name="filter-outline" size={22} color={themeColors.primary} />
+            </TouchableOpacity>
         </View>
-        {isLoadingHistory && (
-            <ActivityIndicator size="small" color={styles.themePalette.primary.color} style={{ marginVertical: 20 }} />
+
+        {/* Chart */}
+        {isLoadingHistory ? (
+            <ActivityIndicator size="small" color={themeColors.primary} style={{ marginVertical: 20 }} />
+        ) : chartData.labels.length > 0 && chartData.labels[0] !== "No Data" ? (
+          <>
+            <Text style={styles.chartTitle}>{historyFilterConfig.type === 'all' ? 'Recent Daily Intake' : `Daily Intake (${historyFilterConfig.type.replace('last', 'Last ')})`}</Text>
+            <LineChart
+                data={chartData}
+                width={Dimensions.get("window").width - 70}
+                height={220}
+                yAxisSuffix="g"
+                yAxisInterval={1}
+                segments={4}
+                chartConfig={{
+                    backgroundColor: themeColors.background,
+                    backgroundGradientFrom: themeColors.background,
+                    backgroundGradientTo: themeColors.background,
+                    decimalPlaces: 0,
+                    color: (opacity = 1) => `rgba(${parseInt(themeColors.primary.slice(1,3),16)}, ${parseInt(themeColors.primary.slice(3,5),16)}, ${parseInt(themeColors.primary.slice(5,7),16)}, ${opacity})`,
+                    labelColor: (opacity = 1) => themeColors.textSecondary,
+                    style: { borderRadius: 16 },
+                    propsForDots: { r: "5", strokeWidth: "1.5", stroke: themeColors.light },
+                    propsForBackgroundLines: { stroke: themeColors.borderColor, strokeDasharray: "" },
+                }}
+                bezier
+                style={styles.chartStyle}
+            />
+          </>
+        ) : (
+          !isLoadingHistory && <Text style={styles.emptyStateText}>Not enough data for chart.</Text>
         )}
-        {!isLoadingHistory && feedingHistory.length === 0 && (
-            <Text style={styles.emptyStateText}>No feeding history recorded yet.</Text>
-        )}
-        {!isLoadingHistory && feedingHistory.length > 0 && (
+
+        <Text style={[styles.subHeaderTitle, {marginTop: 20}]}>Recent Feedings (max 20 shown)</Text>
+        {isLoadingHistory ? (
+            <ActivityIndicator size="small" color={themeColors.primary} style={{ marginVertical: 20 }} />
+        ) : filteredFeedingHistory.length === 0 ? (
+            <Text style={styles.emptyStateText}>No feeding history for selected period.</Text>
+        ) : (
             <FlatList
-                data={feedingHistory}
+                data={filteredFeedingHistory}
                 keyExtractor={(item) => item.id}
                 renderItem={({ item }) => (
                     <View style={styles.historyItem}>
                         <Icon
                             name={item.type === 'manual' ? "hand-right-outline" : "sync-circle-outline"}
                             size={24}
-                            color={item.type === 'manual' ? styles.themePalette.accent.color : styles.themePalette.info.color}
+                            color={item.type === 'manual' ? themeColors.accent : themeColors.info}
                             style={styles.historyIcon}
                         />
                         <View style={styles.historyInfo}>
@@ -1167,18 +1289,20 @@ const proceedWithToggle = async (id, newIsOnState) => {
         )}
       </View>
 
+
+      {/* --- MODALS --- */}
+
       {showPicker && (
         <DateTimePicker
-          value={selectedTime} mode="time" is24Hour={false} display="spinner" onChange={onTimeSelected}
-          // maybe add accentColor for Android picker
+          value={selectedTime} mode="time" is24Hour={false} display={Platform.OS === 'ios' ? 'spinner' : 'default'} onChange={onTimeSelected}
+          accentColor={Platform.OS === 'android' ? themeColors.primary : undefined}
         />
       )}
 
-      {/* Feeding Guide Modal */}
       <Modal visible={showFeedingGuideModal} transparent={true} animationType="fade" onRequestClose={() => setShowFeedingGuideModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Icon name="book-outline" size={30} color={styles.themePalette.primary.color} style={{marginBottom: 10}} />
+            <Icon name="book-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
             <Text style={styles.modalTitle}>Feeding Guide (Example)</Text>
             <Text style={styles.modalText}>• Below 5kg: ~50g per meal</Text>
             <Text style={styles.modalText}>• 5-10kg: ~120g per meal</Text>
@@ -1194,471 +1318,317 @@ const proceedWithToggle = async (id, newIsOnState) => {
         </View>
       </Modal>
 
-      {/* --- Settings Modal (Main) --- */}
       <Modal visible={showSettingsModal} transparent={true} animationType="fade" onRequestClose={() => setShowSettingsModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Icon name="settings-outline" size={30} color={styles.themePalette.primary.color} style={{marginBottom: 10}} />
+            <Icon name="settings-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
             <Text style={styles.modalTitle}>Settings</Text>
 
+            {/* 
             <TouchableOpacity style={styles.settingsMenuItem} onPress={openUpdateModal} disabled={isSaving}>
               <Icon name="paw-outline" size={22} style={styles.settingsMenuItemIcon} />
               <Text style={styles.settingsMenuItemText}>Update Pet Details</Text>
               <Icon name="chevron-forward-outline" size={22} style={styles.settingsMenuChevron} />
             </TouchableOpacity>
-
+              */}
             <TouchableOpacity style={styles.settingsMenuItem} onPress={openAccountModal} disabled={isSaving}>
               <Icon name="person-circle-outline" size={22} style={styles.settingsMenuItemIcon} />
               <Text style={styles.settingsMenuItemText}>Account Settings</Text>
               <Icon name="chevron-forward-outline" size={22} style={styles.settingsMenuChevron} />
             </TouchableOpacity>
 
+              {/* 
+             <TouchableOpacity style={styles.settingsMenuItem} onPress={() => { setShowSettingsModal(false); openUpdateFoodLevelModal(); }} disabled={isSaving}>
+              <Icon name="cube-outline" size={22} style={styles.settingsMenuItemIcon} />
+              <Text style={styles.settingsMenuItemText}>Hopper Configuration</Text>
+              <Icon name="chevron-forward-outline" size={22} style={styles.settingsMenuChevron} />
+            </TouchableOpacity>
+            */}
+
             <TouchableOpacity style={styles.settingsMenuItem} onPress={handleLogout} disabled={isSaving}>
               <Icon name="log-out-outline" size={22} style={[styles.settingsMenuItemIcon, {color: themeColors.textPrimary}]} />
               <Text style={[styles.settingsMenuItemText, {color: themeColors.textPrimary}]}>Logout</Text>
-              <Icon name="chevron-forward-outline" size={22} style={[styles.settingsMenuChevron, {color: themeColors.textPrimary}]} />
             </TouchableOpacity>
-
-            {isSaving && <ActivityIndicator size="small" color={styles.themePalette.primary.color} style={{ marginVertical: 15 }}/>}
-
-            <TouchableOpacity
-              style={[styles.modalButton, styles.modalCloseButton, {marginTop: 20}]}
-              onPress={() => setShowSettingsModal(false)}
-              disabled={isSaving}
-            >
+            {isSaving && <ActivityIndicator size="small" color={themeColors.primary} style={{ marginVertical: 15 }}/>}
+            <TouchableOpacity style={[styles.modalButton, styles.modalCloseButton, {marginTop: 20}]} onPress={() => setShowSettingsModal(false)} disabled={isSaving}>
               <Text style={styles.modalButtonText}>Close</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* --- Account Settings Modal --- */}
       <Modal visible={showAccountModal} transparent={true} animationType="fade" onRequestClose={() => !isSaving && setShowAccountModal(false)}>
         <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-                <Icon name="person-circle-outline" size={30} color={styles.themePalette.primary.color} style={{marginBottom: 10}} />
+                <TouchableOpacity style={styles.modalBackButton} onPress={() => { setShowAccountModal(false); setShowSettingsModal(true); }} disabled={isSaving}>
+                    <Icon name="arrow-back-outline" size={24} color={themeColors.primary} />
+                </TouchableOpacity>
+                <Icon name="person-circle-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
                 <Text style={styles.modalTitle}>Account Settings</Text>
-
                 <View style={styles.modalSection}>
                     <Text style={styles.modalSectionHeader}>Account Email</Text>
                     <View style={styles.accountEmailContainer}>
                         <Icon name="mail-outline" size={20} style={styles.accountEmailIcon} />
-                        <Text style={styles.infoTextValueEmphasized}>
-                            {user ? user.email : 'N/A'}
-                        </Text>
+                        <Text style={styles.infoTextValueEmphasized}>{user ? user.email : 'N/A'}</Text>
                     </View>
                     {user && !user.emailVerified && (
                         <Text style={styles.verificationWarningText}>
-                            <Icon name="alert-circle-outline" size={14} color={styles.themePalette.warning.color} /> Email not verified
+                            <Icon name="alert-circle-outline" size={14} color={themeColors.warning} /> Email not verified
                         </Text>
                     )}
                 </View>
-
                 <TouchableOpacity style={styles.settingsMenuItem} onPress={openChangePasswordModal} disabled={isSaving}>
                     <Icon name="key-outline" size={22} style={styles.settingsMenuItemIcon} />
                     <Text style={styles.settingsMenuItemText}>Change Password</Text>
                     <Icon name="chevron-forward-outline" size={22} style={styles.settingsMenuChevron} />
                 </TouchableOpacity>
-
                 <View style={styles.modalSection}>
                     <Text style={styles.modalSectionHeader}>Delete Account</Text>
-                    <TouchableOpacity
-                        style={[styles.modalButton, styles.modalDeleteButton, isSaving && styles.buttonDisabled]}
-                        onPress={handleDeleteAccount}
-                        disabled={isSaving}
-                    >
+                    <TouchableOpacity style={[styles.modalButton, styles.modalDeleteButton, isSaving && styles.buttonDisabled]} onPress={handleDeleteAccount} disabled={isSaving}>
                         <Icon name="trash-bin-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
                         <Text style={styles.modalButtonText}>Delete Account Permanently</Text>
                     </TouchableOpacity>
-                    <Text style={styles.modalNoteSmall}>This action is irreversible and will delete all your data.</Text>
+                    <Text style={styles.modalNoteSmall}>This action is irreversible.</Text>
                 </View>
-
-                {isSaving && <ActivityIndicator size="small" color={styles.themePalette.primary.color} style={{ marginVertical: 15 }}/>}
-
-                <TouchableOpacity
-                    style={[styles.modalButton, styles.modalCloseButton, {marginTop: 10}]}
-                    onPress={() => {
-                      setShowAccountModal(false);
-                      setShowSettingsModal(true);
-                  }}
-                    disabled={isSaving}
-                >
-                    <Text style={styles.modalButtonText}>Back to Settings</Text>
-                </TouchableOpacity>
+                {isSaving && <ActivityIndicator size="small" color={themeColors.primary} style={{ marginVertical: 15 }}/>}
             </View>
         </View>
       </Modal>
 
-      {/* --- Change Password Modal --- */}
-      <Modal
-        visible={showChangePasswordModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => !isChangingPassword && setShowChangePasswordModal(false)}
-      >
+      <Modal visible={showChangePasswordModal} transparent={true} animationType="fade" onRequestClose={() => !isChangingPassword && setShowChangePasswordModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Icon name="lock-closed-outline" size={30} color={styles.themePalette.primary.color} style={{marginBottom: 10}} />
+             <TouchableOpacity style={styles.modalBackButton} onPress={() => setShowChangePasswordModal(false)} disabled={isChangingPassword}>
+                <Icon name="arrow-back-outline" size={24} color={themeColors.primary} />
+            </TouchableOpacity>
+            <Icon name="lock-closed-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
             <Text style={styles.modalTitle}>Change Password</Text>
-
             <View style={styles.passwordInputContainer}>
-              <TextInput
-                  style={styles.passwordInputText}
-                  placeholder="Current Password"
-                  placeholderTextColor={styles.themePalette.textMuted.color}
-                  value={currentPassword}
-                  onChangeText={setCurrentPassword}
-                  secureTextEntry={!showCurrentPassword}
-                  autoComplete="password"
-                  editable={!isChangingPassword}
-              />
-              <TouchableOpacity
-                style={styles.passwordToggleIcon}
-                onPress={() => setShowCurrentPassword(!showCurrentPassword)}
-              >
-                <Icon
-                  name={showCurrentPassword ? "eye-outline" : "eye-off-outline"}
-                  size={22}
-                  color={themeColors.textMuted}
-                />
-              </TouchableOpacity>
+              <TextInput style={styles.passwordInputText} placeholder="Current Password" placeholderTextColor={themeColors.textMuted} value={currentPassword} onChangeText={setCurrentPassword} secureTextEntry={!showCurrentPassword} editable={!isChangingPassword}/>
+              <TouchableOpacity style={styles.passwordToggleIcon} onPress={() => setShowCurrentPassword(!showCurrentPassword)}><Icon name={showCurrentPassword ? "eye-outline" : "eye-off-outline"} size={22} color="#A06CD5" /></TouchableOpacity>
             </View>
             <View style={styles.passwordInputContainer}>
-              <TextInput
-                  style={styles.passwordInputText}
-                  placeholder="New Password"
-                  placeholderTextColor={styles.themePalette.textMuted.color}
-                  value={newPassword}
-                  onChangeText={(text) => {
-                    setNewPassword(text);
-                    validateNewPassword(text, confirmNewPassword);
-                  }}
-                  secureTextEntry={!showNewPasswordInput}
-                  autoComplete="new-password"
-                  editable={!isChangingPassword}
-              />
-              <TouchableOpacity
-                style={styles.passwordToggleIcon}
-                onPress={() => setShowNewPasswordInput(!showNewPasswordInput)}
-              >
-                <Icon
-                  name={showNewPasswordInput ? "eye-outline" : "eye-off-outline"}
-                  size={22}
-                  color={themeColors.textMuted}
-                />
-              </TouchableOpacity>
+              <TextInput style={styles.passwordInputText} placeholder="New Password" placeholderTextColor={themeColors.textMuted} value={newPassword} onChangeText={(t) => { setNewPassword(t); validateNewPassword(t, confirmNewPassword);}} secureTextEntry={!showNewPasswordInput} editable={!isChangingPassword}/>
+              <TouchableOpacity style={styles.passwordToggleIcon} onPress={() => setShowNewPasswordInput(!showNewPasswordInput)}><Icon name={showNewPasswordInput ? "eye-outline" : "eye-off-outline"} size={22} color="#A06CD5" /></TouchableOpacity>
             </View>
             <View style={styles.passwordInputContainer}>
-              <TextInput
-                  style={styles.passwordInputText}
-                  placeholder="Confirm New Password"
-                  placeholderTextColor={styles.themePalette.textMuted.color}
-                  value={confirmNewPassword}
-                  onChangeText={(text) => {
-                    setConfirmNewPassword(text);
-                    validateNewPassword(newPassword, text);
-                  }}
-                  secureTextEntry={!showConfirmNewPassword}
-                  autoComplete="new-password"
-                  editable={!isChangingPassword}
-              />
-              <TouchableOpacity
-                style={styles.passwordToggleIcon}
-                onPress={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
-              >
-                <Icon
-                  name={showConfirmNewPassword ? "eye-outline" : "eye-off-outline"}
-                  size={22}
-                  color={themeColors.textMuted}
-                />
-              </TouchableOpacity>
+              <TextInput style={styles.passwordInputText} placeholder="Confirm New Password" placeholderTextColor={themeColors.textMuted} value={confirmNewPassword} onChangeText={(t) => { setConfirmNewPassword(t); validateNewPassword(newPassword, t);}} secureTextEntry={!showConfirmNewPassword} editable={!isChangingPassword}/>
+              <TouchableOpacity style={styles.passwordToggleIcon} onPress={() => setShowConfirmNewPassword(!showConfirmNewPassword)}><Icon name={showConfirmNewPassword ? "eye-outline" : "eye-off-outline"} size={22} color="#A06CD5" /></TouchableOpacity>
             </View>
-
-            {/* PASSWORD CHECKLIST */}
-            { (newPassword.length > 0 || confirmNewPassword.length > 0) && (
+            {(newPassword.length > 0 || confirmNewPassword.length > 0) && (
               <View style={styles.passwordChecklistRow}>
                 <View style={styles.passwordMinimalChecklist}>
-                  <Icon
-                    name={newPassHasMinLength ? "checkmark-circle" : "text-outline"}
-                    size={18}
-                    color={newPassHasMinLength ? themeColors.success : themeColors.danger}
-                    style={styles.checklistItemIcon}
-                  />
-                  <Icon
-                    name={newPassHasUpperCase ? "checkmark-circle" : "arrow-up-circle-outline"}
-                    size={18}
-                    color={newPassHasUpperCase ? themeColors.success : themeColors.danger}
-                    style={styles.checklistItemIcon}
-                  />
-                  <Icon
-                    name={newPassHasLowerCase ? "checkmark-circle" : "arrow-down-circle-outline"}
-                    size={18}
-                    color={newPassHasLowerCase ? themeColors.success : themeColors.danger}
-                    style={styles.checklistItemIcon}
-                  />
-                  <Icon
-                    name={newPassHasNumber ? "checkmark-circle" : "apps-outline"}
-                    size={18}
-                    color={newPassHasNumber ? themeColors.success : themeColors.danger}
-                    style={styles.checklistItemIcon}
-                  />
-                  <Icon
-                    name={newPassHasSpecialChar ? "checkmark-circle" : "code-slash-outline"}
-                    size={18}
-                    color={newPassHasSpecialChar ? themeColors.success : themeColors.danger}
-                    style={styles.checklistItemIcon}
-                  />
-                  <Icon
-                    name={newPasswordsMatch && newPassword.length > 0 ? "checkmark-circle" : "git-compare-outline"}
-                    size={18}
-                    color={newPasswordsMatch && newPassword.length > 0 ? themeColors.success : themeColors.danger}
-                    style={styles.checklistItemIcon}
-                  />
+                  {[
+                    {met: newPassHasMinLength, icon: "text-outline"}, {met: newPassHasUpperCase, icon: "arrow-up-circle-outline"},
+                    {met: newPassHasLowerCase, icon: "arrow-down-circle-outline"}, {met: newPassHasNumber, icon: "apps-outline"},
+                    {met: newPassHasSpecialChar, icon: "code-slash-outline"}, {met: newPasswordsMatch && newPassword.length > 0, icon: "git-compare-outline"}
+                  ].map((item, idx) => <Icon key={idx} name={item.met ? "checkmark-circle" : item.icon} size={18} color={item.met ? themeColors.success : themeColors.danger} style={styles.checklistItemIcon}/>)}
                 </View>
-                <TouchableOpacity onPress={() => setShowPasswordInfoModal(true)} style={styles.passwordInfoButton}>
-                  <Icon name="information-circle-outline" size={22} color={themeColors.primary} />
-                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setShowPasswordInfoModal(true)} style={styles.passwordInfoButton}><Icon name="information-circle-outline" size={22} color={themeColors.primary} /></TouchableOpacity>
               </View>
             )}
-
-            <TouchableOpacity
-                style={[
-                    styles.modalButton,
-                    styles.modalPrimaryButton,
-                    (isChangingPassword || !currentPassword || !newPassword || !confirmNewPassword || !(newPassHasMinLength && newPassHasUpperCase && newPassHasLowerCase && newPassHasNumber && newPassHasSpecialChar && newPasswordsMatch)) && styles.buttonDisabled,
-                ]}
-                onPress={handleChangePassword}
-                disabled={
-                  isChangingPassword || !currentPassword || !newPassword || !confirmNewPassword ||
-                  !(newPassHasMinLength && newPassHasUpperCase && newPassHasLowerCase && newPassHasNumber && newPassHasSpecialChar && newPasswordsMatch)
-                }
-            >
-                {isChangingPassword ? <ActivityIndicator size="small" color="#fff" /> : (
-                    <>
-                        <Icon name="save-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
-                        <Text style={styles.modalButtonText}>Update Password</Text>
-                    </>
-                )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-                style={[styles.modalButton, styles.modalSecondaryButton, isChangingPassword && styles.buttonDisabled]}
-                onPress={() => setShowChangePasswordModal(false)}
-                disabled={isChangingPassword}
-            >
-                <Text style={[styles.modalButtonText, {color: styles.themePalette.primary.color}]}>Cancel</Text>
+            <TouchableOpacity style={[styles.modalButton, styles.modalPrimaryButton, (isChangingPassword || !currentPassword || !newPassword || !confirmNewPassword || !(newPassHasMinLength && newPassHasUpperCase && newPassHasLowerCase && newPassHasNumber && newPassHasSpecialChar && newPasswordsMatch)) && styles.buttonDisabled]} onPress={handleChangePassword} disabled={isChangingPassword || !currentPassword || !newPassword || !confirmNewPassword || !(newPassHasMinLength && newPassHasUpperCase && newPassHasLowerCase && newPassHasNumber && newPassHasSpecialChar && newPasswordsMatch)}>
+                {isChangingPassword ? <ActivityIndicator size="small" color="#fff" /> : <><Icon name="save-outline" size={20} color="#fff" style={{ marginRight: 8 }} /><Text style={styles.modalButtonText}>Update Password</Text></>}
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Password Requirements Info Modal */}
-      <Modal
-        visible={showPasswordInfoModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowPasswordInfoModal(false)}
-      >
-        <TouchableOpacity
-            style={styles.passwordInfoModalOverlay}
-            activeOpacity={1}
-            onPressOut={() => setShowPasswordInfoModal(false)}
-        >
+      <Modal visible={showPasswordInfoModal} transparent={true} animationType="fade" onRequestClose={() => setShowPasswordInfoModal(false)}>
+        <TouchableOpacity style={styles.passwordInfoModalOverlay} activeOpacity={1} onPressOut={() => setShowPasswordInfoModal(false)}>
             <View style={styles.passwordInfoModalContent} onStartShouldSetResponder={() => true}>
                 <Text style={styles.passwordInfoModalTitle}>Password Must Contain:</Text>
-                <View style={styles.passwordInfoItem}>
-                    <Icon name="text-outline" size={18} color={themeColors.textSecondary} style={styles.passwordInfoIcon} />
-                    <Text style={styles.passwordInfoText}>At least 6 characters</Text>
-                </View>
-                <View style={styles.passwordInfoItem}>
-                    <Icon name="arrow-up-circle-outline" size={18} color={themeColors.textSecondary} style={styles.passwordInfoIcon} />
-                    <Text style={styles.passwordInfoText}>An uppercase letter (A-Z)</Text>
-                </View>
-                <View style={styles.passwordInfoItem}>
-                    <Icon name="arrow-down-circle-outline" size={18} color={themeColors.textSecondary} style={styles.passwordInfoIcon} />
-                    <Text style={styles.passwordInfoText}>A lowercase letter (a-z)</Text>
-                </View>
-                <View style={styles.passwordInfoItem}>
-                    <Icon name="apps-outline" size={18} color={themeColors.textSecondary} style={styles.passwordInfoIcon} />
-                    <Text style={styles.passwordInfoText}>A number (0-9)</Text>
-                </View>
-                <View style={styles.passwordInfoItem}>
-                    <Icon name="code-slash-outline" size={18} color={themeColors.textSecondary} style={styles.passwordInfoIcon} />
-                    <Text style={styles.passwordInfoText}>A special character (e.g., !@#$%)</Text>
-                </View>
-                <View style={styles.passwordInfoItem}>
-                    <Icon name="git-compare-outline" size={18} color={themeColors.textSecondary} style={styles.passwordInfoIcon} />
-                    <Text style={styles.passwordInfoText}>New passwords must match</Text>
-                </View>
-                <TouchableOpacity
-                    style={[styles.modalButton, styles.modalCloseButton, {marginTop: 15, width: '80%', alignSelf: 'center'}]}
-                    onPress={() => setShowPasswordInfoModal(false)}
-                >
-                    <Text style={styles.modalButtonText}>Got it</Text>
-                </TouchableOpacity>
+                {[
+                    {text: "At least 6 characters", icon: "text-outline"}, {text: "An uppercase letter (A-Z)", icon: "arrow-up-circle-outline"},
+                    {text: "A lowercase letter (a-z)", icon: "arrow-down-circle-outline"}, {text: "A number (0-9)", icon: "apps-outline"},
+                    {text: "A special character (e.g., !@#$%)", icon: "code-slash-outline"}, {text: "New passwords must match", icon: "git-compare-outline"}
+                ].map(item => (
+                    <View key={item.text} style={styles.passwordInfoItem}><Icon name={item.icon} size={18} color={themeColors.textSecondary} style={styles.passwordInfoIcon} /><Text style={styles.passwordInfoText}>{item.text}</Text></View>
+                ))}
+                <TouchableOpacity style={[styles.modalButton, styles.modalCloseButton, {marginTop: 15, width: '80%', alignSelf: 'center'}]} onPress={() => setShowPasswordInfoModal(false)}><Text style={styles.modalButtonText}>Got it</Text></TouchableOpacity>
             </View>
         </TouchableOpacity>
       </Modal>
 
-       {/* Update Pet Details Modal */}
-       <Modal visible={showUpdatePetModal} transparent={true} animationType="fade" onRequestClose={() => {
-           if (!isSaving) {
-               setShowUpdatePetModal(false);
-               setShowSettingsModal(true);
-           }
-       }}>
+       <Modal visible={showUpdatePetModal} transparent={true} animationType="fade" onRequestClose={() => { if (!isSaving) { setShowUpdatePetModal(false); /*setShowSettingsModal(true);*/ } }}>
          <View style={styles.modalOverlay}>
            <View style={styles.modalContent}>
-             <Icon name="create-outline" size={30} color={styles.themePalette.primary.color} style={{marginBottom: 10}} />
+             <TouchableOpacity style={styles.modalBackButton} onPress={() => { setShowUpdatePetModal(false); /*setShowSettingsModal(true);*/ }} disabled={isSaving}>
+                <Icon name="arrow-back-outline" size={24} color={themeColors.primary} />
+            </TouchableOpacity>
+             <Icon name="create-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
              <Text style={styles.modalTitle}>Update Pet Details</Text>
-             <TextInput
-                style={styles.modalInput} placeholder="Pet Name"
-                placeholderTextColor={styles.themePalette.textMuted.color}
-                value={tempPetDetails.name} onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, name: text })}
-                autoCapitalize="words" maxLength={20} editable={!isSaving}
-            />
+             <TextInput style={styles.modalInput} placeholder="Pet Name" placeholderTextColor={themeColors.textMuted} value={tempPetDetails.name} onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, name: text })} autoCapitalize="words" maxLength={20} editable={!isSaving}/>
             <Text style={styles.modalLabel}>Pet Type:</Text>
             <View style={styles.petTypeSelectionContainer}>
-                <TouchableOpacity
-                    style={[ styles.petTypeButton, tempPetDetails.type === 'Dog' && styles.petTypeButtonSelected ]}
-                    onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Dog' })} disabled={isSaving}
-                >
-                    <Icon name="logo-octocat" size={20} style={[styles.petTypeIcon, tempPetDetails.type === 'Dog' && styles.petTypeIconSelected]} />
+                <TouchableOpacity style={[ styles.petTypeButton, tempPetDetails.type === 'Dog' && styles.petTypeButtonSelected ]} onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Dog' })} disabled={isSaving}>
+                    <Icon name="logo-octocat" size={20} style={[styles.petTypeIcon, tempPetDetails.type === 'Dog' && styles.petTypeIconSelected]} />{/* Replace with dog icon */}
                     <Text style={[ styles.petTypeButtonText, tempPetDetails.type === 'Dog' && styles.petTypeButtonTextSelected ]}>Dog</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                    style={[ styles.petTypeButton, tempPetDetails.type === 'Cat' && styles.petTypeButtonSelected ]}
-                    onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Cat' })} disabled={isSaving}
-                >
-                     <Icon name="logo-gitlab" size={20} style={[styles.petTypeIcon, tempPetDetails.type === 'Cat' && styles.petTypeIconSelected]} />
+                <TouchableOpacity style={[ styles.petTypeButton, tempPetDetails.type === 'Cat' && styles.petTypeButtonSelected ]} onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Cat' })} disabled={isSaving}>
+                     <Icon name="logo-gitlab" size={20} style={[styles.petTypeIcon, tempPetDetails.type === 'Cat' && styles.petTypeIconSelected]} />{/* Replace with cat icon */}
                      <Text style={[ styles.petTypeButtonText, tempPetDetails.type === 'Cat' && styles.petTypeButtonTextSelected ]}>Cat</Text>
                 </TouchableOpacity>
             </View>
-            <TextInput
-                style={styles.modalInput} placeholder="Pet Weight (kg)"
-                placeholderTextColor={styles.themePalette.textMuted.color}
-                keyboardType="decimal-pad" value={tempPetDetails.weight} onChangeText={handleTempWeightChange} editable={!isSaving}
-             />
-             <TouchableOpacity
-                style={[styles.modalButton, styles.modalPrimaryButton, isSaving && styles.buttonDisabled]}
-                onPress={handleSaveChanges} disabled={isSaving}
-              >
-                {isSaving ? <ActivityIndicator size="small" color="#fff" /> : (
-                    <>
-                      <Icon name="checkmark-circle-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
-                      <Text style={styles.modalButtonText}>Save Changes</Text>
-                    </>
-                )}
-             </TouchableOpacity>
-             <TouchableOpacity
-                style={[styles.modalButton, styles.modalSecondaryButton]}
-                onPress={() => {
-                  setShowUpdatePetModal(false);
-                  setShowSettingsModal(true); 
-              }}
-                disabled={isSaving}
-              >
-               <Text style={[styles.modalButtonText, {color: styles.themePalette.primary.color}]}>Cancel</Text>
+            <TextInput style={styles.modalInput} placeholder="Pet Weight (kg)" placeholderTextColor={themeColors.textMuted} keyboardType="decimal-pad" value={tempPetDetails.weight} onChangeText={handleTempWeightChange} editable={!isSaving}/>
+             <TouchableOpacity style={[styles.modalButton, styles.modalPrimaryButton, isSaving && styles.buttonDisabled]} onPress={handleSaveChanges} disabled={isSaving}>
+                {isSaving ? <ActivityIndicator size="small" color="#fff" /> : <><Icon name="checkmark-circle-outline" size={20} color="#fff" style={{ marginRight: 8 }} /><Text style={styles.modalButtonText}>Save Changes</Text></>}
              </TouchableOpacity>
            </View>
          </View>
        </Modal>
 
-      {/* Update Food Hopper Modal */}
-      <Modal
-        visible={showUpdateFoodLevelModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => !isSaving && setShowUpdateFoodLevelModal(false)}
-      >
+      <Modal visible={showUpdateFoodLevelModal} transparent={true} animationType="fade" onRequestClose={() => !isSaving && setShowUpdateFoodLevelModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Icon name="cube-outline" size={30} color={styles.themePalette.primary.color} style={{marginBottom: 10}} />
-            <Text style={styles.modalTitle}>Update Food Hopper</Text>
-
+            <TouchableOpacity style={styles.modalBackButton} onPress={() => setShowUpdateFoodLevelModal(false)} disabled={isSaving}>
+                <Icon name="arrow-back-outline" size={24} color={themeColors.primary} />
+            </TouchableOpacity>
+            <Icon name="cube-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
+            <Text style={styles.modalTitle}>Hopper Configuration</Text>
             <Text style={styles.modalLabel}>Current Food in Hopper (grams):</Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder={`e.g., ${currentFoodLevel}`}
-              placeholderTextColor={styles.themePalette.textMuted.color}
-              keyboardType="number-pad"
-              value={tempInputFoodLevel}
-              onChangeText={(text) => {
-                const digitsOnly = text.replace(/[^0-9]/g, '');
-                setTempInputFoodLevel(digitsOnly);
-              }}
-              editable={!isSaving}
-              maxLength={5}
-            />
-
+            <TextInput style={styles.modalInput} placeholder={`e.g., ${currentFoodLevel}`} placeholderTextColor={themeColors.textMuted} keyboardType="number-pad" value={tempInputFoodLevel} onChangeText={(text) => setTempInputFoodLevel(text.replace(/[^0-9]/g, ''))} editable={!isSaving} maxLength={5}/>
             <View style={styles.addGramsContainer}>
-                <TextInput
-                    style={[styles.modalInput, styles.addGramsInput]}
-                    placeholder="Add grams (e.g., 200)"
-                    placeholderTextColor={styles.themePalette.textMuted.color}
-                    keyboardType="number-pad"
-                    value={gramsToAdd}
-                    onChangeText={(text) => {
-                      const digitsOnly = text.replace(/[^0-9]/g, '');
-                      setGramsToAdd(digitsOnly);
-                    }}
-                    editable={!isSaving}
-                    maxLength={4}
-                />
-                <TouchableOpacity
-                    style={[
-                        styles.addGramsButton, 
-                        (isSaving || !gramsToAdd || (parseInt(gramsToAdd, 10) || 0) <= 0) && styles.buttonDisabled
-                    ]}
-                    onPress={handleAddGramsToHopper}
-                    disabled={isSaving || !gramsToAdd || (parseInt(gramsToAdd, 10) || 0) <= 0}
-                >
-                    <Icon name="add-circle-outline" size={20} color="#fff" style={{marginRight: 5}}/>
-                    <Text style={styles.addGramsButtonText}>Add</Text>
+                <TextInput style={[styles.modalInput, styles.addGramsInput]} placeholder="Add grams" placeholderTextColor={themeColors.textMuted} keyboardType="number-pad" value={gramsToAdd} onChangeText={(text) => setGramsToAdd(text.replace(/[^0-9]/g, ''))} editable={!isSaving} maxLength={4}/>
+                <TouchableOpacity style={[styles.addGramsButton, (isSaving || !gramsToAdd || (parseInt(gramsToAdd, 10) || 0) <= 0) && styles.buttonDisabled]} onPress={handleAddGramsToHopper} disabled={isSaving || !gramsToAdd || (parseInt(gramsToAdd, 10) || 0) <= 0}>
+                    <Icon name="add-circle-outline" size={20} color="#fff" style={{marginRight: 5}}/><Text style={styles.addGramsButtonText}>Add</Text>
                 </TouchableOpacity>
             </View>
-
             <Text style={styles.modalLabel}>Total Hopper Capacity (grams):</Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder={`e.g., ${hopperCapacity}`}
-              placeholderTextColor={styles.themePalette.textMuted.color}
-              keyboardType="number-pad"
-              value={tempInputHopperCapacity}
-              onChangeText={(text) => {
-                const digitsOnly = text.replace(/[^0-9]/g, '');
-                setTempInputHopperCapacity(digitsOnly);
-              }}
-              editable={!isSaving}
-              maxLength={5}
-            />
-
-            <TouchableOpacity
-              style={[styles.modalButton, styles.modalPrimaryButton, {marginTop: 20}, isSaving && styles.buttonDisabled]}
-              onPress={handleSaveFoodLevel}
-              disabled={isSaving}
-            >
-              {isSaving ? <ActivityIndicator size="small" color="#fff" /> : (
-                <>
-                  <Icon name="save-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
-                  <Text style={styles.modalButtonText}>Save Levels</Text>
-                </>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.modalButton, styles.modalSecondaryButton, isSaving && styles.buttonDisabled]}
-              onPress={() => {
-                setShowUpdateFoodLevelModal(false);
-                setGramsToAdd('');
-              }}
-              disabled={isSaving}
-            >
-              <Text style={[styles.modalButtonText, {color: styles.themePalette.primary.color}]}>Cancel</Text>
+            <TextInput style={styles.modalInput} placeholder={`e.g., ${hopperCapacity}`} placeholderTextColor={themeColors.textMuted} keyboardType="number-pad" value={tempInputHopperCapacity} onChangeText={(text) => setTempInputHopperCapacity(text.replace(/[^0-9]/g, ''))} editable={!isSaving} maxLength={5}/>
+            <TouchableOpacity style={[styles.modalButton, styles.modalPrimaryButton, {marginTop: 20}, isSaving && styles.buttonDisabled]} onPress={handleSaveFoodLevel} disabled={isSaving}>
+              {isSaving ? <ActivityIndicator size="small" color="#fff" /> : <><Icon name="save-outline" size={20} color="#fff" style={{ marginRight: 8 }} /><Text style={styles.modalButtonText}>Save Levels</Text></>}
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
+
+      {/* Pet Notes Modal */}
+      <Modal visible={showPetNotesModal} transparent={true} animationType="fade" onRequestClose={() => { setCurrentNoteText(''); setEditingNote(null); setShowPetNotesModal(false); }}>
+        <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, {maxHeight: '80%'}]}>
+                 <TouchableOpacity style={styles.modalBackButton} onPress={() => { setCurrentNoteText(''); setEditingNote(null); setShowPetNotesModal(false);}} disabled={isSavingNote}>
+                    <Icon name="arrow-back-outline" size={24} color={themeColors.primary} />
+                </TouchableOpacity>
+                <Icon name="document-text-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
+                <Text style={styles.modalTitle}>{editingNote ? "Edit Note" : "Pet Notes"}</Text>
+                {isLoadingNotes ? <ActivityIndicator /> : (
+                    <FlatList
+                        data={petNotes}
+                        keyExtractor={(item) => item.id}
+                        renderItem={({item}) => (
+                            <View style={styles.noteItem}>
+                                <View style={styles.noteTextContainer}>
+                                    <Text style={styles.noteText}>{item.text}</Text>
+                                    <Text style={styles.noteTimestamp}>{new Date(item.timestamp).toLocaleDateString()}</Text>
+                                </View>
+                                <View style={styles.noteActions}>
+                                    <TouchableOpacity onPress={() => openEditPetNote(item)} style={styles.noteActionButton}>
+                                        <Icon name="create-outline" size={20} color={themeColors.accent} />
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => handleDeletePetNote(item.id)} style={styles.noteActionButton}>
+                                        <Icon name="trash-outline" size={20} color={themeColors.danger} />
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        )}
+                        ListEmptyComponent={<Text style={styles.emptyStateText}>No notes yet. Add one below!</Text>}
+                        style={{width: '100%', maxHeight: Dimensions.get('window').height * 0.3}}
+                        ItemSeparatorComponent={() => <View style={styles.listItemSeparatorThin} />}
+                    />
+                )}
+                <TextInput
+                    style={[styles.modalInput, {marginTop: 15, height: 80}]}
+                    placeholder={editingNote ? "Edit note..." : "Add a new note..."}
+                    placeholderTextColor={themeColors.textMuted}
+                    value={currentNoteText}
+                    onChangeText={setCurrentNoteText}
+                    multiline
+                    textAlignVertical="top"
+                    editable={!isSavingNote}
+                />
+                <TouchableOpacity
+                    style={[styles.modalButton, styles.modalPrimaryButton, (isSavingNote || !currentNoteText.trim()) && styles.buttonDisabled]}
+                    onPress={handleSavePetNote}
+                    disabled={isSavingNote || !currentNoteText.trim()}
+                >
+                    {isSavingNote ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalButtonText}>{editingNote ? "Update Note" : "Add Note"}</Text>}
+                </TouchableOpacity>
+                {editingNote && (
+                    <TouchableOpacity
+                        style={[styles.modalButton, styles.modalSecondaryButton]}
+                        onPress={() => { setEditingNote(null); setCurrentNoteText(''); }}
+                        disabled={isSavingNote}
+                    >
+                        <Text style={[styles.modalButtonText, {color: themeColors.primary}]}>Cancel Edit</Text>
+                    </TouchableOpacity>
+                )}
+            </View>
+        </View>
+      </Modal>
+
+      {/* History Filter Modal */}
+      <Modal visible={showHistoryFilterModal} transparent={true} animationType="fade" onRequestClose={() => setShowHistoryFilterModal(false)}>
+        <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+                <TouchableOpacity style={styles.modalBackButton} onPress={() => setShowHistoryFilterModal(false)}>
+                    <Icon name="close-outline" size={28} color={themeColors.primary} />
+                </TouchableOpacity>
+                <Icon name="filter-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
+                <Text style={styles.modalTitle}>Filter History</Text>
+
+                <TouchableOpacity style={styles.filterOptionButton} onPress={() => setTempHistoryFilterConfig({ type: 'all', startDate: null, endDate: null })}>
+                    <Text style={[styles.filterOptionText, tempHistoryFilterConfig.type === 'all' && styles.filterOptionTextSelected]}>All Time</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.filterOptionButton} onPress={() => setTempHistoryFilterConfig({ type: 'last7days', startDate: null, endDate: null })}>
+                    <Text style={[styles.filterOptionText, tempHistoryFilterConfig.type === 'last7days' && styles.filterOptionTextSelected]}>Last 7 Days</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.filterOptionButton} onPress={() => setTempHistoryFilterConfig({ type: 'last30days', startDate: null, endDate: null })}>
+                    <Text style={[styles.filterOptionText, tempHistoryFilterConfig.type === 'last30days' && styles.filterOptionTextSelected]}>Last 30 Days</Text>
+                </TouchableOpacity>
+
+                <Text style={[styles.modalLabel, {marginTop: 15, alignSelf: 'center'}]}>Custom Range</Text>
+                <View style={styles.datePickerRow}>
+                    <TouchableOpacity style={styles.datePickerInput} onPress={() => setShowHistoryStartDatePicker(true)}>
+                        <Text style={styles.datePickerText}>{tempHistoryFilterConfig.startDate ? tempHistoryFilterConfig.startDate.toLocaleDateString() : "Start Date"}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.datePickerInput} onPress={() => setShowHistoryEndDatePicker(true)}>
+                        <Text style={styles.datePickerText}>{tempHistoryFilterConfig.endDate ? tempHistoryFilterConfig.endDate.toLocaleDateString() : "End Date"}</Text>
+                    </TouchableOpacity>
+                </View>
+                {tempHistoryFilterConfig.startDate && tempHistoryFilterConfig.endDate && tempHistoryFilterConfig.startDate > tempHistoryFilterConfig.endDate && (
+                    <Text style={styles.errorTextSmall}>Start date cannot be after end date.</Text>
+                )}
+
+
+                {showHistoryStartDatePicker && (
+                    <DateTimePicker
+                        value={tempHistoryFilterConfig.startDate || new Date()}
+                        mode="date" display="default"
+                        onChange={(e,d) => onHistoryDateChange(e,d,'start')}
+                        maximumDate={tempHistoryFilterConfig.endDate || new Date()}
+                    />
+                )}
+                {showHistoryEndDatePicker && (
+                    <DateTimePicker
+                        value={tempHistoryFilterConfig.endDate || new Date()}
+                        mode="date" display="default"
+                        onChange={(e,d) => onHistoryDateChange(e,d,'end')}
+                        minimumDate={tempHistoryFilterConfig.startDate}
+                        maximumDate={new Date()}
+                    />
+                )}
+                <TouchableOpacity
+                    style={[styles.modalButton, styles.modalPrimaryButton, {marginTop: 20}, (tempHistoryFilterConfig.startDate && tempHistoryFilterConfig.endDate && tempHistoryFilterConfig.startDate > tempHistoryFilterConfig.endDate) && styles.buttonDisabled]}
+                    onPress={handleApplyHistoryFilter}
+                    disabled={(tempHistoryFilterConfig.startDate && tempHistoryFilterConfig.endDate && tempHistoryFilterConfig.startDate > tempHistoryFilterConfig.endDate)}
+                >
+                    <Text style={styles.modalButtonText}>Apply Filter</Text>
+                </TouchableOpacity>
+            </View>
+        </View>
+      </Modal>
+
 
     </ScrollView>
   );
@@ -1677,25 +1647,14 @@ const themeColors = {
   borderColor: '#E0E0E0', // light gray for borders
   disabledBackground: '#E9D8FD', // muted purple
   disabledText: '#A4A4A4',
-  success: '#28A745',
-  danger: '#DC3545',
-  warning: '#FFC107',
-  info: '#17A2B8',
+  success: '#28A745', // green
+  danger: '#DC3545',  // red
+  warning: '#FFC107', // yellow
+  info: '#17A2B8',    // teal/blue
   warningMutedPurple: '#A98BBD',
 };
 
 const styles = StyleSheet.create({
-  themePalette: {
-    primary: { color: themeColors.primary },
-    light: { color: themeColors.light },
-    accent: { color: themeColors.accent },
-    success: { color: themeColors.success },
-    danger: { color: themeColors.danger },
-    warning: { color: themeColors.warning },
-    info: { color: themeColors.info },
-    textMuted: { color: themeColors.textMuted },
-    warningMutedPurple: { color: themeColors.warningMutedPurple }, 
-  },
   scrollView: {
     flex: 1,
     backgroundColor: themeColors.background,
@@ -1720,31 +1679,61 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 20,
     paddingHorizontal: 5,
-    marginTop: 30,
+    marginTop: Platform.OS === 'ios' ? 40 : 20,
     marginBottom: 10,
   },
   headerIcon: {
     marginRight: 10,
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: "bold",
     color: themeColors.primary,
     flex: 1,
   },
   settingsButton: {
-    padding: 8, // tappable area(?)
+    padding: 8,
   },
   sectionCard: {
     backgroundColor: themeColors.cardBackground,
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 18,
     marginBottom: 20,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  summaryCard: {
+    backgroundColor: themeColors.light,
+    paddingVertical: 15,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  summaryItem: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 5,
+  },
+  summaryText: {
+    fontSize: 13,
+    color: themeColors.textOnPrimary,
+    fontWeight: '600',
+    marginTop: 5,
+    textAlign: 'center',
+  },
+  inlineEditButton: {
+    position: 'absolute',
+    right: 0,
+    top: -5,
+    padding: 5,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 10,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -1759,20 +1748,27 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: themeColors.textPrimary,
     marginLeft: 10,
+    flex: 1,
+  },
+  headerActionIcon: {
+    padding: 5,
+    marginLeft: 10,
   },
   detailRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
+    paddingVertical: 2,
   },
   detailIcon: {
     color: themeColors.accent,
-    marginRight: 10,
+    marginRight: 12,
   },
   infoText: {
     fontSize: 16,
     color: themeColors.textSecondary,
     lineHeight: 24,
+    marginBottom: 8,
   },
   infoTextLabel: {
     fontSize: 16,
@@ -1804,22 +1800,23 @@ const styles = StyleSheet.create({
     color: themeColors.danger,
     fontWeight: 'bold',
   },
-  feedingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 15,
+  errorTextSmall: {
+    fontSize: 13,
+    color: themeColors.danger,
+    textAlign: 'center',
+    marginTop: 5,
   },
   guideButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     backgroundColor: themeColors.background,
     borderRadius: 20,
+    marginLeft: 'auto',
   },
   guideButtonText: {
-    fontSize: 14,
+    fontSize: 13,
     color: themeColors.primary,
     fontWeight: '600',
     marginLeft: 5,
@@ -1831,7 +1828,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: themeColors.borderColor,
     borderRadius: 8,
-    backgroundColor: themeColors.cardBackground,
+    backgroundColor: themeColors.cardBackground, // or themeColors.background for contrast
     marginBottom: 15,
     fontSize: 16,
     color: themeColors.textPrimary,
@@ -1852,6 +1849,11 @@ const styles = StyleSheet.create({
   addTimeButton: {
       backgroundColor: themeColors.primary,
   },
+  viewNotesButton: {
+    backgroundColor: 'transparent',
+    borderColor: themeColors.primary,
+    borderWidth: 1.5,
+  },
   buttonText: {
     color: themeColors.textOnPrimary,
     fontSize: 16,
@@ -1860,6 +1862,7 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     backgroundColor: themeColors.disabledBackground,
+    borderColor: themeColors.disabledBackground,
   },
   scheduleItem: {
     flexDirection: "row",
@@ -1867,7 +1870,6 @@ const styles = StyleSheet.create({
     backgroundColor: themeColors.background,
     padding: 15,
     borderRadius: 10,
-    // marginBottom: 10, // replaced by itemseparatorcomponent
   },
   scheduleIcon: {
     marginRight: 15,
@@ -1884,6 +1886,10 @@ const styles = StyleSheet.create({
      fontSize: 15,
      color: themeColors.textSecondary,
      marginTop: 2,
+   },
+   scheduleTextDisabled: {
+       color: themeColors.textMuted,
+       textDecorationLine: 'line-through',
    },
    scheduleControls: {
      flexDirection: 'row',
@@ -1902,10 +1908,36 @@ const styles = StyleSheet.create({
        fontStyle: 'italic',
    },
    listItemSeparator: {
-    height: 10, 
+    height: 10,
     backgroundColor: 'transparent',
    },
-   modalOverlay: {
+   listItemSeparatorThin: {
+    height: 1,
+    backgroundColor: themeColors.borderColor,
+    marginVertical: 5,
+   },
+  chartTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: themeColors.textPrimary,
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  chartStyle: {
+    marginVertical: 8,
+    borderRadius: 16,
+  },
+  subHeaderTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: themeColors.textPrimary,
+    marginTop: 15,
+    marginBottom: 10,
+    paddingBottom: 5,
+    borderBottomWidth: 1,
+    borderBottomColor: themeColors.borderColor,
+  },
+  modalOverlay: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
@@ -1924,6 +1956,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 10,
+    position: 'relative',
+  },
+  modalBackButton: {
+    position: 'absolute',
+    top: 15,
+    left: 15,
+    padding: 10,
+    zIndex: 10,
   },
   modalTitle: {
     fontSize: 22,
@@ -1934,10 +1974,10 @@ const styles = StyleSheet.create({
   },
   modalSection: {
     width: '100%',
-    marginBottom: 20,
+    marginBottom: 15,
+    paddingTop: 15,
     borderTopWidth: 1,
     borderTopColor: themeColors.borderColor,
-    paddingTop: 20,
   },
   modalSectionHeader: {
       fontSize: 17,
@@ -1994,8 +2034,8 @@ const styles = StyleSheet.create({
     borderColor: themeColors.primary,
     borderWidth: 1.5,
    },
-   modalCloseButton: { 
-    backgroundColor: themeColors.textSecondary, 
+   modalCloseButton: {
+    backgroundColor: themeColors.textSecondary,
    },
    modalDeleteButton: {
     backgroundColor: themeColors.danger,
@@ -2007,9 +2047,9 @@ const styles = StyleSheet.create({
      borderWidth: 1,
      borderColor: themeColors.borderColor,
      borderRadius: 8,
-     marginBottom: 15, 
+     marginBottom: 15,
      fontSize: 16,
-     backgroundColor: themeColors.background, 
+     backgroundColor: themeColors.background,
      color: themeColors.textPrimary,
    },
    modalLabel: {
@@ -2095,11 +2135,9 @@ const styles = StyleSheet.create({
   historyItem: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingVertical: 12,
-      paddingHorizontal: 5, 
-      // marginBottom: 10, // replaced by itemseparator
-      backgroundColor: themeColors.cardBackground, 
-      borderRadius: 8, // optional: round corners for history items if not using card BG
+      paddingVertical: 10,
+      paddingHorizontal: 5,
+      backgroundColor: themeColors.cardBackground,
   },
   historyIcon: {
     marginRight: 15,
@@ -2117,62 +2155,61 @@ const styles = StyleSheet.create({
       fontSize: 14,
       color: themeColors.textSecondary,
   },
-  passwordChecklistContainer: {
-    width: '100%',
-    marginTop: 5,
-    marginBottom: 15,
-    paddingHorizontal: 5,
-  },
-  passwordChecklistItem: {
+  passwordInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    fontSize: 13,
-    marginBottom: 4,
+    width: '100%',
+    borderWidth: 1,
+    borderColor: themeColors.borderColor,
+    borderRadius: 8,
+    marginBottom: 15,
+    backgroundColor: themeColors.background,
   },
-  validCheck: {
-    color: themeColors.success,
+  passwordInputText: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingLeft: 15,
+    paddingRight: 5,
+    fontSize: 16,
+    color: themeColors.textPrimary,
   },
-  invalidCheck: {
-    color: themeColors.danger,
+  passwordToggleIcon: {
+    padding: 10,
   },
-
   passwordChecklistRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between', // info button to the right
+    justifyContent: 'space-between',
     width: '100%',
-    marginBottom: 15, 
-    // paddingHorizontal: 5, // optional: less space taken by checklist
+    marginBottom: 15,
+    paddingHorizontal: 5,
   },
-  passwordMinimalChecklist: { 
+  passwordMinimalChecklist: {
     flexDirection: 'row',
-    // justifyContent: 'flex-start', 
     alignItems: 'center',
-    flex: 1, 
-    marginRight: 10, 
-    justifyContent: 'space-around', 
-    paddingRight: 10, 
+    flex: 1,
+    marginRight: 10,
+    justifyContent: 'space-around',
   },
   checklistItemIcon: {
-    marginHorizontal: 2, 
+    marginHorizontal: 2,
   },
   passwordInfoButton: {
-    padding: 5, 
+    padding: 5,
   },
-
   passwordInfoModalOverlay: {
     flex: 1,
-    justifyContent: 'center', // flex-end
+    justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   passwordInfoModalContent: {
-    width: '85%', // or fixed width like 300
+    width: '85%',
     maxWidth: 320,
     backgroundColor: themeColors.cardBackground,
     borderRadius: 12,
     padding: 20,
-    alignItems: 'flex-start', 
+    alignItems: 'flex-start',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
@@ -2200,28 +2237,6 @@ const styles = StyleSheet.create({
     color: themeColors.textSecondary,
     flexShrink: 1,
   },
-  passwordInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    borderWidth: 1,
-    borderColor: themeColors.borderColor,
-    borderRadius: 8,
-    marginBottom: 15,
-    backgroundColor: themeColors.background,
-  },
-  passwordInputText: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingLeft: 15,
-    paddingRight: 5, 
-    fontSize: 16,
-    color: themeColors.textPrimary,
-  },
-  passwordToggleIcon: {
-    padding: 10,
-  },
-
   addGramsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2238,14 +2253,78 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: 15,
     backgroundColor: themeColors.accent,
     borderRadius: 8,
-    // minWidth: 80,
   },
   addGramsButtonText: {
     color: themeColors.textOnPrimary,
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  noteItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    backgroundColor: themeColors.background,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+  },
+  noteTextContainer: {
+    flex: 1,
+    marginRight: 10,
+  },
+  noteText: {
+    fontSize: 15,
+    color: themeColors.textPrimary,
+    marginBottom: 3,
+  },
+  noteTimestamp: {
+    fontSize: 12,
+    color: themeColors.textMuted,
+  },
+  noteActions: {
+    flexDirection: 'row',
+  },
+  noteActionButton: {
+    padding: 8,
+    marginLeft: 5,
+  },
+  filterOptionButton: {
+    width: '100%',
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: themeColors.borderColor,
+  },
+  filterOptionText: {
+    fontSize: 16,
+    color: themeColors.textSecondary,
+  },
+  filterOptionTextSelected: {
+    color: themeColors.primary,
+    fontWeight: 'bold',
+  },
+  datePickerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginTop: 10,
+    marginBottom: 5,
+  },
+  datePickerInput: {
+    flex: 1,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: themeColors.borderColor,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginHorizontal: 5,
+    backgroundColor: themeColors.background,
+  },
+  datePickerText: {
+    fontSize: 15,
+    color: themeColors.textPrimary,
   },
 });
