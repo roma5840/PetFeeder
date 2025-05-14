@@ -15,11 +15,21 @@
 
 ## Current Version
 
-v12 - MAJOR UPDATE: TOTP
-- for commands -> npx expo install react-native-qrcode-svg
+### v12 - MAJOR UPDATE: TOTP
+*    for commands -> npx expo install react-native-qrcode-svg
+
+#### TOTP Rate Limits
+
+*   **Generating TOTP:** 5 requests per 10 minutes
+*   **Verifying code and enabling TOTP:** 5 attempts per 15 minutes
+*   **Verifying code in login:** 10 attempts per 10 minutes
+*   **Verifying recovery code in login:** 5 attempts per 30 minutes
+*   **Regenerating recovery codes:** 3 requests per 1 hour
+
+Exceeding these limits will result in temporary restrictions on the respective actions.
 
 
-## Release Notes
+## Changelog
 
 v11 - major UI update
 - added pet notes
