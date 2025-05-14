@@ -123,7 +123,8 @@ export default function VerifyTotpScreen() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 recoveryCode: recoveryCode.trim(),
-                storedHashedCodes: userData.hashedRecoveryCodes || []
+                storedHashedCodes: userData.hashedRecoveryCodes || [],
+                userEmail: userEmail
             }),
         });
         const result = await response.json();
