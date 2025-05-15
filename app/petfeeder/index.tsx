@@ -571,13 +571,18 @@ export default function PetFeeder() {
 
   useEffect(() => {
     const handleHardwareBackPress = () => {
-      if (showTotpManagementModal && totpStep === 'showRecovery') {
-        Alert.alert(
-          "Action Required",
-          "Please confirm you have saved your recovery codes and then tap 'Done'.",
-          [{ text: "OK" }]
-        );
-        return true;
+      if (showTotpManagementModal) {
+        if (isTotpLoading) {
+          return true;
+        }
+        if (totpStep === 'showRecovery') {
+          Alert.alert(
+            "Action Required",
+            "Please confirm you have saved your recovery codes and then tap 'Done'.",
+            [{ text: "OK" }]
+          );
+          return true;
+        }
       }
       return false;
     };
@@ -591,7 +596,7 @@ export default function PetFeeder() {
         BackHandler.removeEventListener('hardwareBackPress', handleHardwareBackPress);
       }
     };
-  }, [showTotpManagementModal, totpStep]); 
+  }, [showTotpManagementModal, totpStep, isTotpLoading]);
 
 
   const handleAddFeedingTime = () => {
@@ -1215,16 +1220,26 @@ export default function PetFeeder() {
       try {
           const credential = EmailAuthProvider.credential(user.email, reauthPassword);
           await reauthenticateWithCredential(user, credential);
-          setShowReauthModal(false);
-          setReauthPassword('');
+
+          // setShowReauthModal(false);
+          // setReauthPassword('');
           if (reauthAction === 'disableTotp') {
+              setShowReauthModal(false);
+              setReauthPassword('');
               await executeDisableTotp();
           } else if (reauthAction === 'regenerateRecovery') {
+              setShowReauthModal(false);
+              setReauthPassword('');
+
+              setShowTotpManagementModal(true);
+              setIsTotpLoading(true);
               await executeRegenerateRecoveryCodes();
           } else if (reauthAction === 'viewRecovery') {
+              setShowReauthModal(false);
+              setReauthPassword('');
               Alert.alert("Re-authenticated", "You can now manage recovery codes (e.g., regenerate).");
               setShowTotpManagementModal(true);
-              setTotpStep('manage');
+              setTotpStep('manage'); 
           }
       } catch (error) {
           // console.error("Reauthentication failed:", error);
@@ -1251,6 +1266,13 @@ export default function PetFeeder() {
                   text: "Disable 2FA",
                   style: "destructive",
                   onPress: async () => {
+                     if (!user) {
+                          Alert.alert("Error", "User session expired. Please log in again.");
+                          setIsTotpLoading(false);
+                          setShowTotpManagementModal(false);
+                          setReauthAction(null);
+                          return;
+                      }
                       setIsTotpLoading(true);
                       try {
                           const db = getDatabase();
@@ -1273,8 +1295,15 @@ export default function PetFeeder() {
   };
 
   const executeRegenerateRecoveryCodes = async () => {
-      if (!user) return;
-      setIsTotpLoading(true);
+      if (!user) {
+          console.warn("executeRegenerateRecoveryCodes called without a user.");
+          Alert.alert("Error", "User session lost. Please try again.");
+          setIsTotpLoading(false);
+          setShowTotpManagementModal(false);
+          setTotpStep('initial');
+          setReauthAction(null);
+          return;
+      }
       try {
           const response = await fetch(`${CLOUDFLARE_WORKER_TOTP_URL}/totp/regenerate-recovery`, {
               method: 'POST',
@@ -1291,14 +1320,16 @@ export default function PetFeeder() {
               setPlainRecoveryCodes(data.recoveryCodes);
               setConfirmSavedRecoveryCodes(false);
               setTotpStep('showRecovery');
-              setShowTotpManagementModal(true);
+              // setShowTotpManagementModal(true);
               // Alert.alert("Success", "New recovery codes generated. Please save them securely. Your old codes are now invalid.");
           } else {
               Alert.alert("Error", data.error || "Could not regenerate recovery codes.");
+              setTotpStep('manage');
           }
       } catch (error) {
           // console.error("Error regenerating recovery codes:", error);
           Alert.alert("Error", "Failed to connect to server for regenerating codes.");
+          setTotpStep('manage');
       } finally {
           setIsTotpLoading(false);
           setReauthAction(null);
@@ -1963,14 +1994,14 @@ export default function PetFeeder() {
       >
           <View style={styles.modalOverlay}>
               <View style={[styles.modalContent, {minHeight: 300}]}>
-                  {totpStep !== 'showRecovery' && (
+                  {!isTotpLoading && totpStep !== 'showRecovery' && (
                       <TouchableOpacity
                           style={styles.modalBackButton}
                           onPress={() => {
                               setShowTotpManagementModal(false);
                               setTotpStep('initial');
                           }}
-                          disabled={isTotpLoading}
+                          // disabled={isTotpLoading}
                       >
                           <Icon name="close-outline" size={28} color={themeColors.primary} />
                       </TouchableOpacity>

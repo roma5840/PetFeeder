@@ -304,12 +304,12 @@ export default function Login() {
                                 Alert.alert("Challenge Expired", "Please try again.");
                                 setShowChallengeModal(false); setChallengeToken(null); if (loading) setLoading(false);
                             } else if (messageData.type === 'error') {
-                                console.error("Turnstile WebView Error:", messageData.value);
+                                // console.error("Turnstile WebView Error:", messageData.value);
                                 Alert.alert("Security Check Error", `An error occurred during the security check. Details: ${messageData.value}. Please try again.`);
                                 setShowChallengeModal(false); setChallengeToken(null); if (loading) setLoading(false);
                             }
                         } catch (e) {
-                            console.error("Error parsing WebView message:", e, event.nativeEvent.data);
+                            // console.error("Error parsing WebView message:", e, event.nativeEvent.data);
                             Alert.alert("Error", "Could not process security check response.");
                             setShowChallengeModal(false); setChallengeToken(null); if (loading) setLoading(false);
                         }
