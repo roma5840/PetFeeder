@@ -1,7 +1,7 @@
 // v12:
 // added TOTP 2FA
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,14 +11,17 @@ import {
   Alert,
   ActivityIndicator,
   Image,
-  Keyboard
+  Keyboard,
+  SafeAreaView,
+  ScrollView,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { getDatabase, ref, get, update } from 'firebase/database';
 import { auth } from '../firebaseConfig';
 import Icon from "react-native-vector-icons/Ionicons";
 
-const CLOUDFLARE_WORKER_TOTP_URL = "https://petfeeder-totp-auth.ryanoliver565.workers.dev"; 
+const CLOUDFLARE_WORKER_TOTP_URL = "https://petfeeder-totp-auth.ryanoliver565.workers.dev";
 
 export default function VerifyTotpScreen() {
   const router = useRouter();
@@ -26,11 +29,15 @@ export default function VerifyTotpScreen() {
   const params = useLocalSearchParams();
   const { userId, userEmail } = params;
 
-  const [totpCode, setTotpCode] = useState('');
+  const [totpDigits, setTotpDigits] = useState<string[]>(Array(6).fill(''));
+  const [activeOtpIndex, setActiveOtpIndex] = useState<number>(0);
   const [recoveryCode, setRecoveryCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isUsingRecovery, setIsUsingRecovery] = useState(false);
   const [userData, setUserData] = useState(null);
+
+  const otpInputRefs = useRef<(TextInput | null)[]>([]);
+  const isProgrammaticFocusChange = useRef(false);
 
   useEffect(() => {
     navigation.setOptions({ headerShown: false, gestureEnabled: false });
@@ -41,6 +48,17 @@ export default function VerifyTotpScreen() {
       fetchUserData();
     }
   }, [userId]);
+
+  useEffect(() => {
+    if (!isUsingRecovery && otpInputRefs.current[0]) {
+        setTimeout(() => {
+            isProgrammaticFocusChange.current = true;
+            otpInputRefs.current[0]?.focus();
+            setActiveOtpIndex(0);
+        }, 100);
+    }
+  }, [isUsingRecovery]);
+
 
   const fetchUserData = async () => {
     setIsLoading(true);
@@ -56,7 +74,7 @@ export default function VerifyTotpScreen() {
         router.replace('/login');
       }
     } catch (error) {
-    //   console.error("Error fetching TOTP user data:", error);
+      // console.error("Error fetching TOTP user data:", error);
       Alert.alert("Error", "Could not fetch user data. Please try again.");
       await auth.signOut();
       router.replace('/login');
@@ -65,9 +83,93 @@ export default function VerifyTotpScreen() {
     }
   };
 
+  const handleOtpFocus = (currentIndex: number) => {
+    if (isProgrammaticFocusChange.current) {
+      isProgrammaticFocusChange.current = false;
+      // setActiveOtpIndex(currentIndex);
+      return;
+    }
+
+    const firstEmptyActual = totpDigits.findIndex(digit => digit === '');
+
+    if (firstEmptyActual !== -1) {
+      if (currentIndex !== firstEmptyActual) {
+        isProgrammaticFocusChange.current = true;
+        otpInputRefs.current[firstEmptyActual]?.focus();
+        setActiveOtpIndex(firstEmptyActual);
+      } else {
+        setActiveOtpIndex(firstEmptyActual);
+      }
+    } else {
+      setActiveOtpIndex(currentIndex);
+    }
+  };
+
+  const handleOtpChange = (text: string, index: number) => {
+    const newOtpDigits = [...totpDigits];
+    const cleanText = text.replace(/[^0-9]/g, '');
+
+    if (cleanText.length === 0) {
+        newOtpDigits[index] = '';
+        setTotpDigits(newOtpDigits);
+        // setActiveOtpIndex(index);
+        return;
+    }
+
+    if (cleanText.length === 1) {
+        newOtpDigits[index] = cleanText;
+        setTotpDigits(newOtpDigits);
+        if (index < 5) {
+            isProgrammaticFocusChange.current = true;
+            otpInputRefs.current[index + 1]?.focus();
+            setActiveOtpIndex(index + 1);
+        } else {
+            setActiveOtpIndex(index);
+            Keyboard.dismiss();
+        }
+    } else if (cleanText.length > 1 && index === 0) {
+        const pastedDigits = cleanText.slice(0, 6).split('');
+        const filledOtpDigits = Array(6).fill('');
+        for (let i = 0; i < pastedDigits.length; i++) {
+            filledOtpDigits[i] = pastedDigits[i];
+        }
+        setTotpDigits(filledOtpDigits);
+        const nextFocusIndex = Math.min(pastedDigits.length, 5);
+        isProgrammaticFocusChange.current = true;
+        otpInputRefs.current[nextFocusIndex]?.focus();
+        setActiveOtpIndex(nextFocusIndex);
+        if (pastedDigits.length >= 6) {
+            Keyboard.dismiss();
+        }
+    }
+  };
+
+  const handleOtpKeyPress = (e: any, index: number) => {
+    if (e.nativeEvent.key === 'Backspace') {
+      e.preventDefault();
+
+      const newOtpDigits = [...totpDigits];
+
+      if (newOtpDigits[index] !== '') {
+        newOtpDigits[index] = '';
+        setTotpDigits(newOtpDigits);
+        // setActiveOtpIndex(index);
+      } else if (index > 0) {
+
+        newOtpDigits[index - 1] = '';
+        setTotpDigits(newOtpDigits);
+
+        isProgrammaticFocusChange.current = true;
+        otpInputRefs.current[index - 1]?.focus();
+        setActiveOtpIndex(index - 1);
+      }
+    }
+  };
+
   const handleVerifyTotp = async () => {
-    if (!totpCode.trim()) {
-      Alert.alert("Input Error", "Please enter your 6-digit TOTP code.");
+    const currentTotpCode = totpDigits.join('');
+    if (currentTotpCode.length !== 6) {
+      Alert.alert("Input Error", "Please enter your complete 6-digit TOTP code.");
       return;
     }
     if (!userData || !userData.encryptedSecret || !userData.iv) {
@@ -101,11 +203,9 @@ export default function VerifyTotpScreen() {
           body: JSON.stringify({
               encryptedSecret: userData.encryptedSecret,
               iv: userData.iv,
-              token: totpCode.trim(),
-              // userEmail no longer sent
+              token: currentTotpCode,
           }),
       });
-
       const result = await response.json();
 
       if (response.ok && result.verified) {
@@ -113,6 +213,12 @@ export default function VerifyTotpScreen() {
         router.replace('/petfeeder');
       } else {
         Alert.alert("Verification Failed", result.error || "Invalid TOTP code. Please try again.");
+        setTotpDigits(Array(6).fill(''));
+        setActiveOtpIndex(0);
+        if (otpInputRefs.current[0]) {
+            isProgrammaticFocusChange.current = true;
+            otpInputRefs.current[0]?.focus();
+        }
       }
     } catch (error) {
     //   console.error("Error verifying TOTP:", error);
@@ -126,6 +232,10 @@ export default function VerifyTotpScreen() {
     if (!recoveryCode.trim()) {
       Alert.alert("Input Error", "Please enter your recovery code.");
       return;
+    }
+    if (recoveryCode.trim().length !== 11) {
+        Alert.alert("Input Error", "Recovery code must be 11 characters long.");
+        return;
     }
     if (!userData || !userData.hashedRecoveryCodes) {
         Alert.alert("Error", "User recovery data is incomplete.");
@@ -154,22 +264,19 @@ export default function VerifyTotpScreen() {
             body: JSON.stringify({
                 recoveryCode: recoveryCode.trim(),
                 storedHashedCodes: userData.hashedRecoveryCodes || [],
-                // userEmail no longer sent
             }),
         });
         const result = await response.json();
-
         if (response.ok && result.verified) {
             // Alert.alert("Success", "Recovery code verified!");
             const db = getDatabase();
             const userTotpRef = ref(db, `users/${userId}/totp`);
             const updatedHashedCodes = (userData.hashedRecoveryCodes || []).filter(hash => hash !== result.usedCodeHash);
-
             await update(userTotpRef, { hashedRecoveryCodes: updatedHashedCodes });
-
             router.replace('/petfeeder');
         } else {
             Alert.alert("Verification Failed", result.error || "Invalid recovery code.");
+            setRecoveryCode('');
         }
     } catch (error) {
         // console.error("Error verifying recovery code:", error);
@@ -183,167 +290,331 @@ export default function VerifyTotpScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#A06CD5" />
-        <Text>Loading user data...</Text>
+        <Text style={styles.loadingText}>Loading user data...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <Image
-        source={require('../../assets/images/logo3.png')}
-        style={styles.logo}
-        resizeMode="contain"
-      />
-      <Text style={styles.title}>Two-Factor Authentication</Text>
-      
-      {!isUsingRecovery ? (
-        <>
-          <Text style={styles.instructionText}>
-            Enter the 6-digit code from your authenticator app.
-          </Text>
-          <TextInput
-            style={styles.input}
-            placeholder="XXXXXX"
-            placeholderTextColor="#888"
-            value={totpCode}
-            onChangeText={setTotpCode}
-            keyboardType="number-pad"
-            maxLength={6}
-            autoComplete="off"
-          />
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView
+        behavior={"height"}
+        style={styles.keyboardAvoiding}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollViewContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.headerSection}>
+            <Image
+              source={require('../../assets/images/logo3.png')}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+            <Text style={styles.mainTitle}>Two-Factor Authentication</Text>
+            {userEmail && (
+              <Text style={styles.emailSubtitle}>
+                Verifying for: <Text style={styles.emailText}>{String(userEmail)}</Text>
+              </Text>
+            )}
+          </View>
+
+          <View style={styles.formCard}>
+            {!isUsingRecovery ? (
+              <>
+                <Icon name="shield-checkmark-outline" size={36} color="#A06CD5" style={styles.formIcon} />
+                <Text style={styles.instructionTitle}>Enter Authenticator Code</Text>
+                <Text style={styles.instructionText}>
+                  Open your authenticator app and enter the 6-digit code.
+                </Text>
+                <View style={styles.otpInputContainer}>
+                  {totpDigits.map((digit, index) => (
+                    <TextInput
+                      key={index}
+                      ref={(ref) => (otpInputRefs.current[index] = ref)}
+                      style={[
+                        styles.otpInputBox,
+                        activeOtpIndex === index && styles.otpInputBoxActive
+                      ]}
+                      keyboardType="number-pad"
+                      maxLength={1}
+                      onChangeText={(text) => handleOtpChange(text, index)}
+                      onKeyPress={(e) => handleOtpKeyPress(e, index)}
+                      onFocus={() => handleOtpFocus(index)}
+                      value={digit}
+                      textContentType="oneTimeCode"
+                      caretHidden
+                    />
+                  ))}
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.button,
+                    (isLoading || totpDigits.join('').length !== 6) && styles.disabledButton
+                  ]}
+                  onPress={handleVerifyTotp}
+                  disabled={isLoading || totpDigits.join('').length !== 6}
+                >
+                  {isLoading && !isUsingRecovery ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.buttonText}>Verify Code</Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.switchModeButton}
+                  onPress={() => {
+                    setIsUsingRecovery(true);
+                    setTotpDigits(Array(6).fill(''));
+                    setActiveOtpIndex(0);
+                  }}
+                  disabled={isLoading}
+                >
+                  <Text style={styles.switchModeButtonText}>Use a recovery code instead</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Icon name="key-outline" size={36} color="#A06CD5" style={styles.formIcon} />
+                <Text style={styles.instructionTitle}>Enter Recovery Code</Text>
+                <Text style={styles.instructionText}>
+                  Enter one of your 11-character recovery codes.
+                </Text>
+                <TextInput
+                  style={styles.inputRecovery}
+                  placeholder="XXXXX-XXXXX"
+                  placeholderTextColor="#B0B0B0"
+                  value={recoveryCode}
+                  maxLength={11}
+                  onChangeText={setRecoveryCode}
+                  autoCorrect={false}
+                  autoComplete="off"
+                  autoFocus={true}
+                />
+                <TouchableOpacity
+                  style={[
+                    styles.button,
+                    (isLoading || !recoveryCode || recoveryCode.trim().length !== 11) && styles.disabledButton
+                  ]}
+                  onPress={handleVerifyRecoveryCode}
+                  disabled={isLoading || !recoveryCode || recoveryCode.trim().length !== 11}
+                >
+                  {isLoading && isUsingRecovery ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.buttonText}>Verify Recovery Code</Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.switchModeButton}
+                  onPress={() => {
+                    setIsUsingRecovery(false);
+                    setRecoveryCode('');
+                  }}
+                  disabled={isLoading}
+                >
+                  <Text style={styles.switchModeButtonText}>Use authenticator app code</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+
           <TouchableOpacity
-            style={[styles.button, isLoading && styles.disabledButton]}
-            onPress={handleVerifyTotp}
+            style={[styles.signOutButton, isLoading && styles.disabledSignOutButton]}
+            onPress={async () => {
+              setIsLoading(true);
+              await auth.signOut();
+              router.replace('/login');
+            }}
             disabled={isLoading}
           >
-            {isLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.buttonText}>Verify Code</Text>}
+            <Icon name="log-out-outline" size={20} color={isLoading ? "#E57373" : "#DC3545"} style={styles.signOutIcon} />
+            <Text style={[styles.signOutButtonText, isLoading && styles.disabledSignOutText]}>Sign Out & Return to Login</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => setIsUsingRecovery(true)} disabled={isLoading}>
-            <Text style={styles.linkText}>Use a recovery code</Text>
-          </TouchableOpacity>
-        </>
-      ) : (
-        <>
-          <Text style={styles.instructionText}>
-            Enter one of your recovery codes.
-          </Text>
-          <TextInput
-            style={styles.input}
-            placeholder="XXXXX-XXXXX"
-            placeholderTextColor="#888"
-            value={recoveryCode}
-            maxLength={11}
-            onChangeText={setRecoveryCode}
-            autoCorrect={false}
-            autoComplete="off"
-          />
-          <TouchableOpacity
-            style={[styles.button, isLoading && styles.disabledButton]}
-            onPress={handleVerifyRecoveryCode}
-            disabled={isLoading}
-          >
-            {isLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.buttonText}>Verify Recovery Code</Text>}
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setIsUsingRecovery(false)} disabled={isLoading}>
-            <Text style={styles.linkText}>Use authenticator app code</Text>
-          </TouchableOpacity>
-        </>
-      )}
-       <TouchableOpacity style={styles.signOutButton} onPress={async () => {
-           setIsLoading(true);
-           await auth.signOut();
-           router.replace('/login');
-           setIsLoading(false);
-        }} disabled={isLoading}>
-            <Icon name="log-out-outline" size={20} color="#DC3545" style={{marginRight: 5}} />
-            <Text style={styles.signOutButtonText}>Sign Out & Return to Login</Text>
-        </TouchableOpacity>
-    </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#F7F2FA',
+  },
+  keyboardAvoiding: {
+    flex: 1,
+  },
+  scrollViewContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f8f9fa",
+    backgroundColor: "#F7F2FA",
   },
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: 20,
-    backgroundColor: '#f8f9fa',
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#A06CD5',
+  },
+  headerSection: {
+    alignItems: 'center',
+    marginBottom: 30,
   },
   logo: {
-    width: 150,
-    height: 150,
-    alignSelf: 'center',
-    marginBottom: 20,
+    width: 100,
+    height: 100,
+    marginBottom: 15,
   },
-  title: {
-    fontSize: 24,
+  mainTitle: {
+    fontSize: 26,
     fontWeight: 'bold',
+    color: '#333333',
     textAlign: 'center',
-    color: '#333',
-    marginBottom: 10,
+    marginBottom: 5,
+  },
+  emailSubtitle: {
+    fontSize: 14,
+    color: '#5A5A5A',
+    textAlign: 'center',
+  },
+  emailText: {
+    fontWeight: '600',
+    color: '#A06CD5',
+  },
+  formCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 25,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 8,
+    marginBottom: 30,
+  },
+  formIcon: {
+    marginBottom: 15,
+  },
+  instructionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#333333',
+    textAlign: 'center',
+    marginBottom: 8,
   },
   instructionText: {
-    fontSize: 16,
+    fontSize: 15,
     textAlign: 'center',
-    color: '#555',
-    marginBottom: 20,
+    color: '#5A5A5A',
+    marginBottom: 25,
     lineHeight: 22,
   },
-  input: {
-    height: 50,
-    borderWidth: 1,
-    borderColor: '#A06CD5',
+  otpInputContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 25,
+  },
+  otpInputBox: {
+    width: 45,
+    height: 55,
+    borderWidth: 1.5,
+    borderColor: '#E0D1F0',
     borderRadius: 8,
-    paddingHorizontal: 15,
-    marginBottom: 15,
-    backgroundColor: '#fff',
-    fontSize: 16,
-    color: '#333',
     textAlign: 'center',
+    fontSize: 20,
+    color: '#333333',
+    backgroundColor: '#F7F2FA',
+    fontWeight: 'bold',
+  },
+  otpInputBoxActive: {
+    borderColor: '#A06CD5',
+    borderWidth: 2,
+  },
+  inputRecovery: {
+    height: 55,
+    width: '100%',
+    backgroundColor: '#F7F2FA',
+    borderWidth: 1,
+    borderColor: '#E0D1F0',
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    marginBottom: 20,
+    fontSize: 16,
+    color: '#333333',
+    textAlign: 'center',
+    fontFamily: 'monospace',
   },
   button: {
     backgroundColor: '#A06CD5',
-    paddingVertical: 14,
-    borderRadius: 8,
+    paddingVertical: 15,
+    borderRadius: 10,
     alignItems: 'center',
-    marginBottom: 20,
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    shadowColor: "#A06CD5",
+    shadowOffset: { width: 0, height: 2, },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
   },
   disabledButton: {
-    backgroundColor: '#DAC3E8',
+    backgroundColor: '#D6BEEF',
+    shadowOpacity: 0.1,
   },
   buttonText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 16,
   },
-  linkText: {
+  switchModeButton: {
+    marginTop: 20,
+    paddingVertical: 10,
+  },
+  switchModeButtonText: {
     color: '#A06CD5',
     textAlign: 'center',
     fontSize: 15,
     fontWeight: '600',
-    paddingVertical: 10,
   },
   signOutButton: {
-    marginTop: 30,
+    marginTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderRadius: 8,
-    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
     borderColor: '#DC3545',
+    backgroundColor: 'transparent',
+  },
+  disabledSignOutButton: {
+    borderColor: '#E57373',
+  },
+  signOutIcon: {
+    marginRight: 8,
   },
   signOutButtonText: {
     color: '#DC3545',
     fontSize: 15,
     fontWeight: 'bold',
   },
+  disabledSignOutText: {
+    color: '#E57373',
+  }
 });
