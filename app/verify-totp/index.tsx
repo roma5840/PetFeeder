@@ -22,6 +22,7 @@ import { auth } from '../firebaseConfig';
 import Icon from "react-native-vector-icons/Ionicons";
 
 const CLOUDFLARE_WORKER_TOTP_URL = "https://petfeeder-totp-auth.ryanoliver565.workers.dev";
+const SCREEN_TIMEOUT_DURATION_MS = 3 * 60 * 1000; // 3 minutes for inactivity
 
 export default function VerifyTotpScreen() {
   const router = useRouter();
@@ -38,6 +39,7 @@ export default function VerifyTotpScreen() {
 
   const otpInputRefs = useRef<(TextInput | null)[]>([]);
   const isProgrammaticFocusChange = useRef(false);
+  const timeoutIdRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     navigation.setOptions({ headerShown: false, gestureEnabled: false });
@@ -58,6 +60,45 @@ export default function VerifyTotpScreen() {
         }, 100);
     }
   }, [isUsingRecovery]);
+
+  const resetScreenTimer = () => {
+    if (timeoutIdRef.current) {
+      clearTimeout(timeoutIdRef.current);
+    }
+    timeoutIdRef.current = setTimeout(async () => {
+      console.log("Verify TOTP screen timeout reached due to inactivity.");
+      Alert.alert(
+        "Session Timeout",
+        "For your security, you have been logged out due to inactivity.",
+        [{ text: "OK" }]
+      );
+      setIsLoading(true);
+      try {
+        await auth.signOut();
+      } catch (error) {
+        console.error("Error signing out on timeout:", error);
+      } finally {
+        setTotpDigits(Array(6).fill(''));
+        setRecoveryCode('');
+        setActiveOtpIndex(0);
+        setIsLoading(false);
+        router.replace('/login');
+      }
+    }, SCREEN_TIMEOUT_DURATION_MS);
+    // console.log(`Verify TOTP screen inactivity timer reset/started for ${SCREEN_TIMEOUT_DURATION_MS / 1000 / 60} minutes.`);
+  };
+
+  useEffect(() => {
+    resetScreenTimer();
+
+    return () => {
+      if (timeoutIdRef.current) {
+        clearTimeout(timeoutIdRef.current);
+        // console.log("Verify TOTP screen timer cleared on unmount.");
+        timeoutIdRef.current = null;
+      }
+    };
+  }, []); 
 
 
   const fetchUserData = async () => {
@@ -106,6 +147,7 @@ export default function VerifyTotpScreen() {
   };
 
   const handleOtpChange = (text: string, index: number) => {
+    resetScreenTimer();
     const newOtpDigits = [...totpDigits];
     const cleanText = text.replace(/[^0-9]/g, '');
 
@@ -146,6 +188,7 @@ export default function VerifyTotpScreen() {
 
   const handleOtpKeyPress = (e: any, index: number) => {
     if (e.nativeEvent.key === 'Backspace') {
+      resetScreenTimer();
       e.preventDefault();
 
       const newOtpDigits = [...totpDigits];
@@ -167,6 +210,7 @@ export default function VerifyTotpScreen() {
   };
 
   const handleVerifyTotp = async () => {
+    resetScreenTimer();
     const currentTotpCode = totpDigits.join('');
     if (currentTotpCode.length !== 6) {
       Alert.alert("Input Error", "Please enter your complete 6-digit TOTP code.");
@@ -210,6 +254,7 @@ export default function VerifyTotpScreen() {
 
       if (response.ok && result.verified) {
         // Alert.alert("Success", "2FA Verified!");
+        if (timeoutIdRef.current) clearTimeout(timeoutIdRef.current);
         router.replace('/petfeeder');
       } else {
         Alert.alert("Verification Failed", result.error || "Invalid TOTP code. Please try again.");
@@ -229,6 +274,7 @@ export default function VerifyTotpScreen() {
   };
 
   const handleVerifyRecoveryCode = async () => {
+    resetScreenTimer();
     if (!recoveryCode.trim()) {
       Alert.alert("Input Error", "Please enter your recovery code.");
       return;
@@ -273,6 +319,7 @@ export default function VerifyTotpScreen() {
             const userTotpRef = ref(db, `users/${userId}/totp`);
             const updatedHashedCodes = (userData.hashedRecoveryCodes || []).filter(hash => hash !== result.usedCodeHash);
             await update(userTotpRef, { hashedRecoveryCodes: updatedHashedCodes });
+            if (timeoutIdRef.current) clearTimeout(timeoutIdRef.current);
             router.replace('/petfeeder');
         } else {
             Alert.alert("Verification Failed", result.error || "Invalid recovery code.");
@@ -364,6 +411,7 @@ export default function VerifyTotpScreen() {
                 <TouchableOpacity
                   style={styles.switchModeButton}
                   onPress={() => {
+                    resetScreenTimer();
                     setIsUsingRecovery(true);
                     setTotpDigits(Array(6).fill(''));
                     setActiveOtpIndex(0);
@@ -386,7 +434,10 @@ export default function VerifyTotpScreen() {
                   placeholderTextColor="#B0B0B0"
                   value={recoveryCode}
                   maxLength={11}
-                  onChangeText={setRecoveryCode}
+                  onChangeText={(text) => {
+                    resetScreenTimer();
+                    setRecoveryCode(text);
+                  }}
                   autoCorrect={false}
                   autoComplete="off"
                   autoFocus={true}
@@ -408,6 +459,7 @@ export default function VerifyTotpScreen() {
                 <TouchableOpacity
                   style={styles.switchModeButton}
                   onPress={() => {
+                    resetScreenTimer();
                     setIsUsingRecovery(false);
                     setRecoveryCode('');
                   }}
@@ -422,8 +474,14 @@ export default function VerifyTotpScreen() {
           <TouchableOpacity
             style={[styles.signOutButton, isLoading && styles.disabledSignOutButton]}
             onPress={async () => {
+              if (timeoutIdRef.current) clearTimeout(timeoutIdRef.current);
+
               setIsLoading(true);
               await auth.signOut();
+
+              setTotpDigits(Array(6).fill(''));
+              setRecoveryCode('');
+              setActiveOtpIndex(0);
               router.replace('/login');
             }}
             disabled={isLoading}
