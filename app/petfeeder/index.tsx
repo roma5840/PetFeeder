@@ -1123,12 +1123,21 @@ export default function PetFeeder() {
   };
 
   const handleStartTotpSetup = async () => {
-      if (!user) return;
+      const currentUser = auth.currentUser;
+      if (!currentUser || !currentUser.email) {
+          Alert.alert("Error", "User not logged in or email missing. Please re-login.");
+          return;
+      }
       setIsTotpLoading(true);
       try {
-          const response = await fetch(`${CLOUDFLARE_WORKER_TOTP_URL}/totp/generate?email=${encodeURIComponent(user.email)}`, {
+          const idToken = await currentUser.getIdToken();
+          const response = await fetch(`${CLOUDFLARE_WORKER_TOTP_URL}/totp/generate?email=${encodeURIComponent(currentUser.email)}`, {
               method: 'GET',
+              headers: {
+                  'Authorization': `Bearer ${idToken}`
+              }
           });
+
           const data = await response.json();
           if (response.ok) {
               setTotpSecret(data.secret);
@@ -1146,18 +1155,26 @@ export default function PetFeeder() {
   };
 
   const handleVerifyAndEnableTotp = async () => {
-      if (!user || !totpSecret || !totpVerificationCode) return;
+      const currentUser = auth.currentUser;
+      if (!currentUser || !currentUser.email || !totpSecret || !totpVerificationCode) {
+          Alert.alert("Error", "User session, secret, or verification code missing. Please try again.");
+          return;
+      }
       setIsTotpLoading(true);
       try {
+          const idToken = await currentUser.getIdToken();
           const response = await fetch(`${CLOUDFLARE_WORKER_TOTP_URL}/totp/verify-and-enable`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${idToken}`
+              },
               body: JSON.stringify({
                   secret: totpSecret,
                   token: totpVerificationCode,
-                  userEmail: user.email
               }),
           });
+
           const data = await response.json();
           if (response.ok) {
               const db = getDatabase();
@@ -1295,9 +1312,10 @@ export default function PetFeeder() {
   };
 
   const executeRegenerateRecoveryCodes = async () => {
-      if (!user) {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
           console.warn("executeRegenerateRecoveryCodes called without a user.");
-          Alert.alert("Error", "User session lost. Please try again.");
+          Alert.alert("Error", "User session lost. Please log out and log back in.");
           setIsTotpLoading(false);
           setShowTotpManagementModal(false);
           setTotpStep('initial');
@@ -1305,11 +1323,18 @@ export default function PetFeeder() {
           return;
       }
       try {
+          const idToken = await currentUser.getIdToken();
           const response = await fetch(`${CLOUDFLARE_WORKER_TOTP_URL}/totp/regenerate-recovery`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId: user.uid })
+              headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${idToken}`
+              },
+              body: JSON.stringify({
+                  // userId no longer sent
+              })
           });
+
           const data = await response.json();
           if (response.ok) {
               const db = getDatabase();

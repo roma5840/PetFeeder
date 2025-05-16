@@ -15,8 +15,8 @@
 
 ## Current Version
 
-### v12 - MAJOR UPDATE: TOTP
-*    for commands -> npx expo install react-native-qrcode-svg
+### v12.5 - Enhanced API Security: TOTP Endpoints Now Require Firebase ID Token Authentication
+*   All API calls to TOTP endpoints now require a valid Firebase ID Token (JWT) in the Authorization header.
 
 #### TOTP Rate Limits
 
@@ -30,6 +30,8 @@ Exceeding these limits will result in temporary restrictions on the respective a
 
 
 ## Changelog
+
+v12 - First implementation of TOTP
 
 v11 - major UI update
 - added pet notes

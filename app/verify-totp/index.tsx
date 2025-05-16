@@ -74,19 +74,36 @@ export default function VerifyTotpScreen() {
       Alert.alert("Error", "User TOTP data is incomplete. Please re-login or setup TOTP again.");
       return;
     }
+
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+        Alert.alert("Error", "User session expired. Please log in again.");
+        setIsLoading(false);
+        router.replace('/login');
+        return;
+    }
+
     Keyboard.dismiss();
     setIsLoading(true);
 
     try {
+      const idToken = await currentUser.getIdToken();
+
+      // console.log("ID Token from Firebase Auth (VerifyTotpScreen):", idToken);
+      // console.log("Type of ID Token:", typeof idToken);
+
       const response = await fetch(`${CLOUDFLARE_WORKER_TOTP_URL}/totp/verify-login-token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          encryptedSecret: userData.encryptedSecret,
-          iv: userData.iv,
-          token: totpCode.trim(),
-          userEmail: userEmail
-        }),
+          method: 'POST',
+          headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${idToken}`
+          },
+          body: JSON.stringify({
+              encryptedSecret: userData.encryptedSecret,
+              iv: userData.iv,
+              token: totpCode.trim(),
+              // userEmail no longer sent
+          }),
       });
 
       const result = await response.json();
@@ -114,17 +131,30 @@ export default function VerifyTotpScreen() {
         Alert.alert("Error", "User recovery data is incomplete.");
         return;
     }
+
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+        Alert.alert("Error", "User session expired. Please log in again.");
+        setIsLoading(false);
+        router.replace('/login');
+        return;
+    }
+
     Keyboard.dismiss();
     setIsLoading(true);
 
     try {
+        const idToken = await currentUser.getIdToken();
         const response = await fetch(`${CLOUDFLARE_WORKER_TOTP_URL}/totp/verify-recovery-code`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`
+            },
             body: JSON.stringify({
                 recoveryCode: recoveryCode.trim(),
                 storedHashedCodes: userData.hashedRecoveryCodes || [],
-                userEmail: userEmail
+                // userEmail no longer sent
             }),
         });
         const result = await response.json();
