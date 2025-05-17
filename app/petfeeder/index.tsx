@@ -653,26 +653,26 @@ export default function PetFeeder() {
      setSelectedTime(new Date());
   };
 
- const toggleSchedule = async (id, scheduledAmount) => {
-  const scheduleIndex = schedules.findIndex((item) => item.id === id);
-  if (scheduleIndex === -1) return;
+  const toggleSchedule = async (id, scheduledAmount) => {
+    const scheduleIndex = schedules.findIndex((item) => item.id === id);
+    if (scheduleIndex === -1) return;
 
-  const scheduleToUpdate = schedules[scheduleIndex];
-  const newIsOnState = !scheduleToUpdate.isOn;
+    const scheduleToUpdate = schedules[scheduleIndex];
+    const newIsOnState = !scheduleToUpdate.isOn;
 
-  if (newIsOnState && scheduledAmount > currentFoodLevel) {
-      Alert.alert(
-          "Low Food",
-          `There isn't enough food (${currentFoodLevel}g) in the hopper for this ${scheduledAmount}g schedule. Please refill or adjust. Turn on anyway?`,
-          [
-              { text: "Cancel", style: "cancel" },
-              { text: "Turn On Anyway", onPress: () => proceedWithToggle(id, newIsOnState) }
-          ]
-      );
-      return;
-  }
-  proceedWithToggle(id, newIsOnState);
-};
+    if (newIsOnState && scheduledAmount > currentFoodLevel) {
+        Alert.alert(
+            "Low Food",
+            `There isn't enough food (${currentFoodLevel}g) in the hopper for this ${scheduledAmount}g schedule. Please refill or adjust. Turn on anyway?`,
+            [
+                { text: "Cancel", style: "cancel" },
+                { text: "Turn On Anyway", onPress: () => proceedWithToggle(id, newIsOnState) }
+            ]
+        );
+        return;
+    }
+    proceedWithToggle(id, newIsOnState);
+  };
 
   const proceedWithToggle = async (id, newIsOnState) => {
       setIsSaving(true);
@@ -1626,6 +1626,7 @@ export default function PetFeeder() {
         />
       )}
 
+      {/* Feeding Guide Modal */}
       <Modal visible={showFeedingGuideModal} transparent={true} animationType="fade" onRequestClose={() => setShowFeedingGuideModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -1645,6 +1646,7 @@ export default function PetFeeder() {
         </View>
       </Modal>
 
+      {/* Settings Modal */}
       <Modal visible={showSettingsModal} transparent={true} animationType="fade" onRequestClose={() => setShowSettingsModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -1684,6 +1686,7 @@ export default function PetFeeder() {
         </View>
       </Modal>
 
+      {/* Account Settings Modal */}
       <Modal visible={showAccountModal} transparent={true} animationType="fade" onRequestClose={() => !isSaving && setShowAccountModal(false)}>
         <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
@@ -1729,6 +1732,7 @@ export default function PetFeeder() {
         </View>
       </Modal>
 
+      {/* Change Password Modal */}
       <Modal visible={showChangePasswordModal} transparent={true} animationType="fade" onRequestClose={() => !isChangingPassword && setShowChangePasswordModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -1768,6 +1772,7 @@ export default function PetFeeder() {
         </View>
       </Modal>
 
+      {/* Show Password Info Modal */}
       <Modal visible={showPasswordInfoModal} transparent={true} animationType="fade" onRequestClose={() => setShowPasswordInfoModal(false)}>
         <TouchableOpacity style={styles.passwordInfoModalOverlay} activeOpacity={1} onPressOut={() => setShowPasswordInfoModal(false)}>
             <View style={styles.passwordInfoModalContent} onStartShouldSetResponder={() => true}>
@@ -1784,34 +1789,36 @@ export default function PetFeeder() {
         </TouchableOpacity>
       </Modal>
 
-       <Modal visible={showUpdatePetModal} transparent={true} animationType="fade" onRequestClose={() => { if (!isSaving) { setShowUpdatePetModal(false); /*setShowSettingsModal(true);*/ } }}>
-         <View style={styles.modalOverlay}>
-           <View style={styles.modalContent}>
-             <TouchableOpacity style={styles.modalBackButton} onPress={() => { setShowUpdatePetModal(false); /*setShowSettingsModal(true);*/ }} disabled={isSaving}>
-                <Icon name="arrow-back-outline" size={24} color={themeColors.primary} />
+      {/* Update Pet Details Modal */}
+      <Modal visible={showUpdatePetModal} transparent={true} animationType="fade" onRequestClose={() => { if (!isSaving) { setShowUpdatePetModal(false); /*setShowSettingsModal(true);*/ } }}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <TouchableOpacity style={styles.modalBackButton} onPress={() => { setShowUpdatePetModal(false); /*setShowSettingsModal(true);*/ }} disabled={isSaving}>
+              <Icon name="arrow-back-outline" size={24} color={themeColors.primary} />
+          </TouchableOpacity>
+            <Icon name="create-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
+            <Text style={styles.modalTitle}>Update Pet Details</Text>
+            <TextInput style={styles.modalInput} placeholder="Pet Name" placeholderTextColor={themeColors.textMuted} value={tempPetDetails.name} onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, name: text })} autoCapitalize="words" maxLength={20} editable={!isSaving}/>
+          <Text style={styles.modalLabel}>Pet Type:</Text>
+          <View style={styles.petTypeSelectionContainer}>
+              <TouchableOpacity style={[ styles.petTypeButton, tempPetDetails.type === 'Dog' && styles.petTypeButtonSelected ]} onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Dog' })} disabled={isSaving}>
+                  <Icon name="logo-octocat" size={20} style={[styles.petTypeIcon, tempPetDetails.type === 'Dog' && styles.petTypeIconSelected]} />{/* Replace with dog icon */}
+                  <Text style={[ styles.petTypeButtonText, tempPetDetails.type === 'Dog' && styles.petTypeButtonTextSelected ]}>Dog</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[ styles.petTypeButton, tempPetDetails.type === 'Cat' && styles.petTypeButtonSelected ]} onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Cat' })} disabled={isSaving}>
+                    <Icon name="logo-gitlab" size={20} style={[styles.petTypeIcon, tempPetDetails.type === 'Cat' && styles.petTypeIconSelected]} />{/* Replace with cat icon */}
+                    <Text style={[ styles.petTypeButtonText, tempPetDetails.type === 'Cat' && styles.petTypeButtonTextSelected ]}>Cat</Text>
+              </TouchableOpacity>
+          </View>
+          <TextInput style={styles.modalInput} placeholder="Pet Weight (kg)" placeholderTextColor={themeColors.textMuted} keyboardType="decimal-pad" value={tempPetDetails.weight} onChangeText={handleTempWeightChange} editable={!isSaving}/>
+            <TouchableOpacity style={[styles.modalButton, styles.modalPrimaryButton, isSaving && styles.buttonDisabled]} onPress={handleSaveChanges} disabled={isSaving}>
+              {isSaving ? <ActivityIndicator size="small" color="#fff" /> : <><Icon name="checkmark-circle-outline" size={20} color="#fff" style={{ marginRight: 8 }} /><Text style={styles.modalButtonText}>Save Changes</Text></>}
             </TouchableOpacity>
-             <Icon name="create-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
-             <Text style={styles.modalTitle}>Update Pet Details</Text>
-             <TextInput style={styles.modalInput} placeholder="Pet Name" placeholderTextColor={themeColors.textMuted} value={tempPetDetails.name} onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, name: text })} autoCapitalize="words" maxLength={20} editable={!isSaving}/>
-            <Text style={styles.modalLabel}>Pet Type:</Text>
-            <View style={styles.petTypeSelectionContainer}>
-                <TouchableOpacity style={[ styles.petTypeButton, tempPetDetails.type === 'Dog' && styles.petTypeButtonSelected ]} onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Dog' })} disabled={isSaving}>
-                    <Icon name="logo-octocat" size={20} style={[styles.petTypeIcon, tempPetDetails.type === 'Dog' && styles.petTypeIconSelected]} />{/* Replace with dog icon */}
-                    <Text style={[ styles.petTypeButtonText, tempPetDetails.type === 'Dog' && styles.petTypeButtonTextSelected ]}>Dog</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[ styles.petTypeButton, tempPetDetails.type === 'Cat' && styles.petTypeButtonSelected ]} onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Cat' })} disabled={isSaving}>
-                     <Icon name="logo-gitlab" size={20} style={[styles.petTypeIcon, tempPetDetails.type === 'Cat' && styles.petTypeIconSelected]} />{/* Replace with cat icon */}
-                     <Text style={[ styles.petTypeButtonText, tempPetDetails.type === 'Cat' && styles.petTypeButtonTextSelected ]}>Cat</Text>
-                </TouchableOpacity>
-            </View>
-            <TextInput style={styles.modalInput} placeholder="Pet Weight (kg)" placeholderTextColor={themeColors.textMuted} keyboardType="decimal-pad" value={tempPetDetails.weight} onChangeText={handleTempWeightChange} editable={!isSaving}/>
-             <TouchableOpacity style={[styles.modalButton, styles.modalPrimaryButton, isSaving && styles.buttonDisabled]} onPress={handleSaveChanges} disabled={isSaving}>
-                {isSaving ? <ActivityIndicator size="small" color="#fff" /> : <><Icon name="checkmark-circle-outline" size={20} color="#fff" style={{ marginRight: 8 }} /><Text style={styles.modalButtonText}>Save Changes</Text></>}
-             </TouchableOpacity>
-           </View>
-         </View>
-       </Modal>
+          </View>
+        </View>
+      </Modal>
 
+      {/* Hopper Configuration Modal */}
       <Modal visible={showUpdateFoodLevelModal} transparent={true} animationType="fade" onRequestClose={() => !isSaving && setShowUpdateFoodLevelModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
