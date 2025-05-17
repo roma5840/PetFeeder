@@ -15,7 +15,9 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "package": "com.roma5840.aspetfeeder",
+      "versionCode": 1
     },
     "web": {
       "bundler": "metro",
@@ -37,6 +39,15 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "891ce889-5cab-48e2-870e-8be5acef7f2b"
+      }
+    },
+    "owner": "roma5840"
   }
 }

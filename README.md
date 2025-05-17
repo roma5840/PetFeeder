@@ -17,6 +17,30 @@
 
 ### v12.5 - Enhanced API Security: TOTP Endpoints Now Require Firebase ID Token Authentication
 *   All API calls to TOTP endpoints now require a valid Firebase ID Token (JWT) in the Authorization header.
+*   For eas:
+
+```
+npm install -g eas-cli 
+OR 
+npm insatll --save-dev eas-cli (for local directory only)
+```
+
+*   Remove 'npx' if installed globally
+
+```
+npx eas login
+npx eas project:init 
+npx eas build:configure
+```
+
+```
+npx eas build -p android --profile preview
+OR
+npx eas build -p android --profile development
+```
+
+*   Preview profile is how it would look like if deployed for production (apk file)
+*   Development profile is just like doing 'npx expo start' and scanning the QR using expo go app in android. Use it if there are custom native modules (e.g. planned feature of react-native-ble-plx for BLE for the app to ESP32) -> 
 
 #### TOTP Rate Limits
 
