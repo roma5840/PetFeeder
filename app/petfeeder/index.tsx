@@ -1,5 +1,5 @@
-// v12:
-// added TOTP 2FA
+// v13
+// added device logging
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
@@ -18,6 +18,8 @@ import {
   Dimensions,
   Platform,
   BackHandler,
+  Linking,
+  Clipboard,
 } from "react-native";
 import Icon from "react-native-vector-icons/Ionicons";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -47,6 +49,8 @@ import {
 } from "firebase/database";
 
 import QRCode from 'react-native-qrcode-svg';
+import * as Application from 'expo-application';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const timeToMinutes = (timeStr) => {
     if (!timeStr || typeof timeStr !== 'string') return Infinity;
@@ -161,7 +165,14 @@ export default function PetFeeder() {
   const [reauthAction, setReauthAction] = useState(null);
   const [isReauthenticating, setIsReauthenticating] = useState(false);
 
+  const [deviceSessions, setDeviceSessions] = useState<DeviceSession[]>([]);
+  const [isLoadingDeviceSessions, setIsLoadingDeviceSessions] = useState(false);
+  const [showDeviceManagementModal, setShowDeviceManagementModal] = useState(false);
+  const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
+
+
   const CLOUDFLARE_WORKER_TOTP_URL = "https://petfeeder-totp-auth.ryanoliver565.workers.dev"; 
+  const CLOUDFLARE_WORKER_DEVICES_URL = "https://petfeeder-device-manager-worker.ryanoliver565.workers.dev"; 
 
   const [nextScheduledFeedInfo, setNextScheduledFeedInfo] = useState({ time: "N/A", amount: ""});
 
@@ -178,6 +189,16 @@ export default function PetFeeder() {
   const auth = getAuth();
   const db = getDatabase();
   const user = auth.currentUser;
+
+  interface DeviceSession {
+    deviceId: string;
+    userAgent: string;
+    ipAddress: string;
+    country: string;
+    firstLogin: number;
+    lastActive: number;
+    status: 'active' | 'pending_logout' | 'logged_out';
+  }
 
 
   const calculateRecommendedWeight = useCallback((weight) => {
@@ -871,13 +892,32 @@ export default function PetFeeder() {
   };
 
   const handleLogout = async () => {
+    if (auth.currentUser && currentDeviceId) {
+        try {
+            // console.log(`[handleLogout] Attempting to notify server of self-logout for device: ${currentDeviceId}`);
+            await _callDeviceApi(
+                '/devices/logout/self',
+                'POST',
+                auth.currentUser,
+                { deviceId: currentDeviceId }
+            );
+            // console.log(`[handleLogout] Server successfully notified of self-logout for device: ${currentDeviceId}`);
+        } catch (apiError: any) {
+            console.warn(`[handleLogout] Failed to notify server of self-logout for device ${currentDeviceId}. Error: ${apiError.message}. Proceeding with local logout.`);
+        }
+    } else {
+        console.warn("[handleLogout] Cannot notify server of self-logout: User or currentDeviceId is not available. Proceeding with local logout only.");
+    }
+
     try {
         await signOut(auth);
-    } catch (error) {
-        Alert.alert("Error", "Failed to log out. Please try again.");
-        // console.error("handleLogout: SignOut error:", error);
+        console.log("[handleLogout] User signed out locally from Firebase.");
+    } catch (signOutError: any) {
+        // console.error("[handleLogout] Error during local Firebase signOut:", signOutError);
+        Alert.alert("Logout Error", `An error occurred while signing out: ${signOutError.message}`);
     }
   };
+
 
   const handleDeleteAccount = () => {
     const userToDelete = auth.currentUser;
@@ -1361,6 +1401,242 @@ export default function PetFeeder() {
       }
   };
 
+  const getOrCreateDeviceId = async (): Promise<string> => {
+    let deviceId = await AsyncStorage.getItem('app_device_id_v2');
+    if (!deviceId) {
+        deviceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+        await AsyncStorage.setItem('app_device_id_v2', deviceId);
+    }
+    return deviceId;
+  };
+
+  useEffect(() => {
+    const initDeviceId = async () => {
+        try {
+            const id = await getOrCreateDeviceId();
+            setCurrentDeviceId(id);
+            console.log("Device ID Initialized:", id);
+        } catch (error) {
+            console.error("Failed to initialize device ID:", error);
+        }
+    };
+    initDeviceId();
+  }, []);
+
+
+  useEffect(() => {
+      let heartbeatIntervalId: NodeJS.Timeout | null = null;
+
+      const manageSessionAndHeartbeat = async () => {
+          if (user && auth.currentUser && currentDeviceId) {
+              console.log(`User ${user.uid} and Device ID ${currentDeviceId} present. Managing session and heartbeat.`);
+              try {
+                  await logDeviceSessionStart(currentDeviceId, auth.currentUser);
+
+                  if (heartbeatIntervalId) {
+                      clearInterval(heartbeatIntervalId);
+                  }
+
+                  heartbeatIntervalId = setInterval(async () => {
+                      if (auth.currentUser && currentDeviceId) {
+                          // console.log(`Heartbeat: User ${auth.currentUser.uid}, Device ${currentDeviceId}`);
+                          await sendDeviceHeartbeat(currentDeviceId, auth.currentUser);
+                      } else {
+                          if (heartbeatIntervalId) {
+                              // console.log("Clearing heartbeat interval (user or deviceId became null inside interval).");
+                              clearInterval(heartbeatIntervalId);
+                              heartbeatIntervalId = null;
+                          }
+                      }
+                  }, 2 * 60 * 1000); // heart beat is 2 minutes... so remote session logout would be 2 minutes after. 4 minutes preferable in prod
+
+              } catch (e) {
+                  console.error("Error during initial logDeviceSessionStart in useEffect:", e);
+              }
+          } else {
+              // console.log("User or Device ID not present. Skipping session/heartbeat setup.");
+          }
+      };
+
+      manageSessionAndHeartbeat();
+
+      // Cleanup function
+      return () => {
+          if (heartbeatIntervalId) {
+              // console.log("Cleaning up heartbeat interval from useEffect unmount/dependency change.");
+              clearInterval(heartbeatIntervalId);
+              heartbeatIntervalId = null;
+          }
+      };
+  }, [user, currentDeviceId, auth]); 
+
+  const _callDeviceApi = async (endpoint: string, method: 'POST' | 'GET', currentUser: User, body?: any) => {
+    if (!currentUser) throw new Error("User not authenticated for device API call.");
+    const idToken = await currentUser.getIdToken();
+    const userAgent = `${Platform.OS}/${Platform.Version} (${Application.applicationName}/${Application.nativeApplicationVersion})`;
+
+    const response = await fetch(`${CLOUDFLARE_WORKER_DEVICES_URL}${endpoint}`, {
+        method,
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`,
+        },
+        body: body ? JSON.stringify(body) : undefined,
+    });
+
+    let responseData;
+    try {
+      responseData = await response.json();
+    } catch (e) {
+      if (!response.ok) throw new Error(`Server error: ${response.status} ${response.statusText}`);
+      throw new Error("Invalid JSON response from server.");
+    }
+
+    if (!response.ok) {
+        const errorMessage = responseData.error || responseData.message || `Device API Error: ${response.status}`;
+        console.warn(`Device API call to ${endpoint} failed:`, errorMessage, responseData);
+        if (response.status === 401 && (responseData.status === 'session_revoked_logout_all' || responseData.status === 'logged_out_remotely' || responseData.status === 'stale_session_logged_out')) {
+            Alert.alert("Session Terminated", responseData.message || "Your session has been remotely terminated or has expired. Please log in again.");
+            await signOut(auth);
+        }
+        throw new Error(errorMessage);
+    }
+    return responseData;
+  };
+
+
+  const logDeviceSessionStart = async (deviceId: string, currentUser: User) => {
+    try {
+        const userAgent = `${Platform.OS} ${Platform.Version} (${Application.applicationName}/${Application.nativeApplicationVersion})`;
+        await _callDeviceApi('/devices/session-start', 'POST', currentUser, { deviceId, userAgent });
+        // console.log('Device session started/updated.');
+    } catch (error: any) {
+        console.warn('Failed to log device session start:', error.message);
+    }
+  };
+
+  const sendDeviceHeartbeat = async (deviceId: string, currentUser: User) => {
+    try {
+        await _callDeviceApi('/devices/heartbeat', 'POST', currentUser, { deviceId });
+        // console.log('Device heartbeat sent.');
+    } catch (error: any) {
+        console.warn('Failed to send device heartbeat:', error.message);
+    }
+  };
+
+  const fetchDeviceSessions = async () => {
+    if (!auth.currentUser) return;
+    setIsLoadingDeviceSessions(true);
+    try {
+        const data = await _callDeviceApi('/devices', 'GET', auth.currentUser);
+        const sortedData = (data as DeviceSession[]).sort((a, b) => {
+            if (a.deviceId === currentDeviceId) return -1;
+            if (b.deviceId === currentDeviceId) return 1;
+            return b.lastActive - a.lastActive;
+        });
+
+        // const mySession = sortedData.find(s => s.deviceId === currentDeviceId);
+        // if (mySession && mySession.status === 'pending_logout') {
+        //     console.log("My own session is pending_logout. Initiating immediate local logout.");
+        //     Alert.alert("Session Terminated", "This session has been remotely logged out.");
+        //     await signOut(auth);
+        //     return;
+        // }
+        setDeviceSessions(sortedData);
+    } catch (error: any) {
+        Alert.alert('Error Fetching Devices', error.message || 'Could not load device list.');
+        setDeviceSessions([]);
+    } finally {
+        setIsLoadingDeviceSessions(false);
+    }
+  };
+
+  const openDeviceManagement = () => {
+    setShowSettingsModal(false);
+    setShowAccountModal(false);
+    fetchDeviceSessions();
+    setShowDeviceManagementModal(true);
+  };
+
+  const handleLogoutSpecificDevice = async (deviceIdToLogout: string) => {
+    if (!auth.currentUser || !currentDeviceId) return;
+    Alert.alert(
+        "Confirm Logout",
+        "Are you sure you want to log out this device session? The device will be signed out on its next activity check.",
+        [
+            { text: "Cancel", style: "cancel" },
+            {
+                text: "Log Out Device", style: "destructive",
+                onPress: async () => {
+                    setIsLoadingDeviceSessions(true);
+                    try {
+                        await _callDeviceApi('/devices/logout/specific', 'POST', auth.currentUser!, { deviceIdToLogout, currentDeviceId });
+                        Alert.alert("Logout Initiated", "The selected device session will be terminated shortly.");
+                        fetchDeviceSessions();
+                    } catch (error: any) {
+                        Alert.alert("Logout Failed", error.message || "Could not log out the device.");
+                    } finally {
+                        setIsLoadingDeviceSessions(false);
+                    }
+                },
+            },
+        ]
+    );
+  };
+
+  const handleLogoutAllOtherDevices = async () => {
+    if (!auth.currentUser || !currentDeviceId) return;
+     Alert.alert(
+        "Confirm Logout All Others",
+        "Are you sure you want to log out all other device sessions? This will not affect your current session. Other devices will be signed out on their next activity check.",
+        [
+            { text: "Cancel", style: "cancel" },
+            {
+                text: "Log Out All Others", style: "destructive",
+                onPress: async () => {
+                    setIsLoadingDeviceSessions(true);
+                    try {
+                        await _callDeviceApi('/devices/logout/all-others', 'POST', auth.currentUser!, { currentDeviceId });
+                        Alert.alert("Logout Initiated", "All other device sessions will be terminated shortly.");
+                        fetchDeviceSessions();
+                    } catch (error: any) {
+                        Alert.alert("Logout Failed", error.message || "Could not log out other devices.");
+                    } finally {
+                        setIsLoadingDeviceSessions(false);
+                    }
+                },
+            },
+        ]
+    );
+  };
+
+  const parseUserAgentForDisplay = (ua: string | null): { name: string, icon: string } => {
+    if (!ua) return { name: "Unknown Device", icon: "help-circle-outline" };
+    const lowerUa = ua.toLowerCase();
+    if (lowerUa.includes("iphone") || lowerUa.includes("ipad")) return { name: "iOS Device", icon: "logo-apple" };
+    if (lowerUa.includes("android")) return { name: "Android Device", icon: "logo-android" };
+    if (lowerUa.includes("windows")) return { name: "Windows", icon: "desktop-outline" };
+    if (lowerUa.includes("mac os") || lowerUa.includes("macos")) return { name: "macOS", icon: "laptop-outline" };
+    if (lowerUa.includes("linux")) return { name: "Linux", icon: "desktop-outline" };
+    if (lowerUa.includes("cfnetwork") || lowerUa.includes("dart")) return { name: `${Platform.OS} App`, icon: Platform.OS === 'ios' ? "logo-apple" : "logo-android" };
+    return { name: "Unknown Web/App", icon: "globe-outline" };
+  };
+
+  const formatLastActiveTime = (timestamp: number): string => {
+    if (!timestamp) return "N/A";
+    const now = Date.now();
+    const diffSeconds = Math.round((now - timestamp) / 1000);
+    if (diffSeconds < 60) return "Just now";
+    if (diffSeconds < 3600) return `${Math.round(diffSeconds / 60)}m ago`;
+    if (diffSeconds < 86400) return `${Math.round(diffSeconds / 3600)}h ago`;
+    return new Date(timestamp).toLocaleDateString();
+  };
+
+
+
 
 
   if (isLoading) {
@@ -1719,6 +1995,13 @@ export default function PetFeeder() {
                   </Text>
                   <Icon name="chevron-forward-outline" size={22} style={styles.settingsMenuChevron} />
                 </TouchableOpacity>
+
+                <TouchableOpacity style={styles.settingsMenuItem} onPress={openDeviceManagement} disabled={isSaving || isLoadingDeviceSessions}>
+                  <Icon name="list-circle-outline" size={22} style={styles.settingsMenuItemIcon} />
+                  <Text style={styles.settingsMenuItemText}>Manage Devices</Text>
+                  <Icon name="chevron-forward-outline" size={22} style={styles.settingsMenuChevron} />
+                </TouchableOpacity>
+
                 <View style={styles.modalSection}>
                     <Text style={styles.modalSectionHeader}>Delete Account</Text>
                     <TouchableOpacity style={[styles.modalButton, styles.modalDeleteButton, isSaving && styles.buttonDisabled]} onPress={handleDeleteAccount} disabled={isSaving}>
@@ -2146,6 +2429,87 @@ export default function PetFeeder() {
               </View>
           </View>
       </Modal>
+
+      {/* Device Management Modal */}
+      <Modal visible={showDeviceManagementModal} transparent={true} animationType="fade" onRequestClose={() => !isLoadingDeviceSessions && setShowDeviceManagementModal(false)}>
+        <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { maxHeight: '85%', minWidth: '95%'}]}>
+                <TouchableOpacity style={styles.modalBackButton} onPress={() => { setShowDeviceManagementModal(false); setShowAccountModal(true); }} disabled={isLoadingDeviceSessions}>
+                    <Icon name="arrow-back-outline" size={24} color={themeColors.primary} />
+                </TouchableOpacity>
+                <Icon name="list-circle-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
+                <Text style={styles.modalTitle}>Active Devices</Text>
+
+                {isLoadingDeviceSessions ? (
+                    <ActivityIndicator size="large" color={themeColors.primary} style={{marginVertical: 20}} />
+                ) : deviceSessions.length === 0 ? (
+                    <Text style={styles.emptyStateText}>No other active device sessions found.</Text>
+                ) : (
+                    <FlatList
+                        data={deviceSessions}
+                        keyExtractor={(item) => item.deviceId}
+                        style={{width: '100%', marginBottom: 15}}
+                        ItemSeparatorComponent={() => <View style={styles.listItemSeparatorThin} />}
+                        renderItem={({ item }) => {
+                            const deviceInfo = parseUserAgentForDisplay(item.userAgent);
+                            const isCurrent = item.deviceId === currentDeviceId;
+                            const onlineThreshold = (2 * 60 * 1000) + (15 * 1000); // 135 seconds
+                            const isActiveNow = item.status === 'active' && (Date.now() - item.lastActive) < onlineThreshold;
+
+                            return (
+                               <View style={styles.deviceItemContainer}>
+                                <Icon 
+                                    name={deviceInfo.icon} 
+                                    size={30} 
+                                    color={
+                                        isCurrent && item.status === 'active' ? themeColors.success : 
+                                        item.status === 'logged_out' ? themeColors.textMuted : 
+                                        item.status === 'pending_logout' ? themeColors.warning :
+                                        themeColors.accent
+                                    } 
+                                    style={styles.deviceItemIcon} 
+                                />
+                                <View style={styles.deviceItemInfo}>
+                                    <Text style={styles.deviceItemName}>
+                                        {deviceInfo.name}{' '}
+                                        {isCurrent && item.status === 'active' && <Text style={{color: themeColors.success, fontWeight: 'bold'}}>(Current)</Text>}
+                                        {item.status === 'logged_out' && <Text style={{color: themeColors.textMuted, fontStyle: 'italic'}}>(Logged Out)</Text>}
+                                        {item.status === 'pending_logout' && <Text style={{color: themeColors.warning, fontStyle: 'italic'}}>(Logging out...)</Text>}
+                                    </Text>
+                                    <Text style={styles.deviceItemDetail}>Location: {item.country || 'N/A'}</Text>
+                                    <Text style={styles.deviceItemDetail}>
+                                        Last Active: {formatLastActiveTime(item.lastActive)}
+                                        {isActiveNow && <Text style={{color: themeColors.success, fontSize: 12}}> (Online)</Text>}
+                                    </Text>
+
+                                    {(isCurrent || item.status === 'logged_out') && item.deviceId && 
+                                        <TouchableOpacity onPress={() => { Clipboard.setString(item.deviceId); Alert.alert("Device ID Copied", item.deviceId);}}>
+                                            <Text style={styles.deviceIdText}>ID: {item.deviceId.substring(0,8)}...</Text>
+                                        </TouchableOpacity>
+                                    }
+                                </View>
+
+                                {!isCurrent && item.status === 'active' && (
+                                    <TouchableOpacity onPress={() => handleLogoutSpecificDevice(item.deviceId)} style={styles.deviceItemLogoutButton} disabled={isLoadingDeviceSessions}>
+                                        <Icon name="log-out-outline" size={24} color={themeColors.danger} />
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                            );
+                        }}
+                    />
+                )}
+
+                {deviceSessions.filter(ds => ds.deviceId !== currentDeviceId && ds.status === 'active').length > 0 && (
+                    <TouchableOpacity style={[styles.modalButton, styles.modalDeleteButton, { marginTop: 10, marginBottom: 5, backgroundColor: themeColors.warning }]} onPress={handleLogoutAllOtherDevices} disabled={isLoadingDeviceSessions}>
+                        <Icon name="nuclear-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+                        <Text style={styles.modalButtonText}>Log Out All Other Devices</Text>
+                    </TouchableOpacity>
+                )}
+            </View>
+        </View>
+      </Modal>
+
 
 
     </ScrollView>
@@ -2876,5 +3240,36 @@ const styles = StyleSheet.create({
       color: themeColors.textSecondary,
       flexShrink: 1,
   },
+  deviceItemContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 5,
+    backgroundColor: themeColors.cardBackground,
+    borderRadius: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: themeColors.borderColor,
+  },
+  deviceItemIcon: {
+    marginRight: 15,
+    width: 35,
+    textAlign: 'center',
+  },
+  deviceItemInfo: {
+    flex: 1,
+  },
+  deviceItemName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: themeColors.textPrimary,
+    marginBottom: 4,
+  },
+  deviceItemDetail: {
+    fontSize: 13,
+    color: themeColors.textSecondary,
+    marginBottom: 2,
+  },
+  deviceItemLogoutButton: { padding: 10, marginLeft: 10, },
+  deviceIdText: { fontSize: 11, color: themeColors.textMuted, marginTop: 2, fontStyle: 'italic' },
 
 });

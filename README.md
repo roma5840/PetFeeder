@@ -1,23 +1,12 @@
-## Get started
-
-1. Install dependencies
-
-   ```bash
-   npm install
-   npx expo install @react-native-community/datetimepicker
-   ```
-
-2. Start the app
-
-   ```bash
-    npx expo start
-   ```
-
 ## Current Version
 
-### v12.5 - Enhanced API Security: TOTP Endpoints Now Require Firebase ID Token Authentication
-*   All API calls to TOTP endpoints now require a valid Firebase ID Token (JWT) in the Authorization header.
-*   For eas:
+### v13 - Device Logging
+*   Added device logging
+*   Command done: npx expo install expo-application
+
+## Usage on EAS Build
+*   EAS builds are only used if there are custom native modules (e.g. soon-to-be-implemented BLE feature for ESP32 connection)
+*   Note to team: using EAS to build the app would take time, and using 'npx expo start' is more suitable for local development (unless of course it's for the BLE feature, in which case you have to create your own expo account and link this project to your own expo account and build it with EAS to be able to accurately test the BLE feature).
 
 ```
 npm install -g eas-cli 
@@ -26,6 +15,7 @@ npm insatll --save-dev eas-cli (for local directory only)
 ```
 
 *   Remove 'npx' if installed globally
+*   No need to build/configure
 
 ```
 npx eas login
@@ -37,12 +27,23 @@ npx eas build:configure
 npx eas build -p android --profile preview
 OR
 npx eas build -p android --profile development
+npx expo start --dev-client (for development)
 ```
 
 *   Preview profile is how it would look like if deployed for production (apk file)
-*   Development profile is just like doing 'npx expo start' and scanning the QR using expo go app in android. Use it if there are custom native modules (e.g. planned feature of react-native-ble-plx for BLE for the app to ESP32) -> 
+*   Development profile is just like doing 'npx expo start' and scanning the QR using expo go app in android (which means hot reloading is supported). Use it if there are custom native modules (e.g. planned feature of react-native-ble-plx for BLE for the app to ESP32)
 
-#### TOTP Rate Limits
+## TOTP (Backend) Key Features
+*   **Firebase Authentication:**
+    *   All sensitive actions require users to be authenticated via Firebase ID Tokens (JWTs).
+    *   Tokens are validated against Google's public keys.
+*   **Secure TOTP Secret Handling:**
+    *   TOTP secrets are encrypted (AES-GCM) by the backend before being sent to the client for storage (storage is through Firebase Realtime Database).
+    *   The client sends the encrypted secret back for verification, where it's decrypted on the server.
+*   **Hashed Recovery Codes:**
+    *   Recovery codes are hashed using SHA-256 before being stored by the client. This reduces the risk of plain-text exposure if the client's storage is compromised.
+
+### TOTP Rate Limits
 
 *   **Generating TOTP:** 5 requests per 10 minutes
 *   **Verifying code and enabling TOTP:** 5 attempts per 15 minutes
@@ -50,17 +51,41 @@ npx eas build -p android --profile development
 *   **Verifying recovery code in login:** 5 attempts per 30 minutes
 *   **Regenerating recovery codes:** 3 requests per 1 hour
 
+**Note:** TOTP Rate Limits apply per user (not per IP)
+
 Exceeding these limits will result in temporary restrictions on the respective actions.
+
+## Device Logging Key Features
+
+*   **Automatic Device Registration:** When a user logs in, their device is automatically registered with a unique ID and its type (e.g., iOS, Android) is recorded.
+*   **Last Active Tracking:** The system keeps track of the last time each device communicated with the server.
+*   **"Online" Status:** Devices that have recently sent a heartbeat (within the last ~2 minutes) are shown as "Online".
+*   **Location Indication:** An approximate geographical location (country) for each session is displayed (still needs further testing).
+*   **Session Viewing:** Users can access a list in their account settings showing:
+    *   Currently active devices.
+    *   Devices pending logout (remotely instructed to log out).
+    *   Recently logged out devices.
+*   **Manage Other Sessions:**
+    *   **Remotely Log Out Specific Device:** Users can select another device from their list and instruct it to log out. The target device will be logged out upon its next activity check with the server (typically within 2 minutes).
+    *   **Remotely Log Out All Other Devices:** Users can log out all sessions except the current one. This also invalidates older session tokens for enhanced security.
+
+### Notes
+*    All communication with the server for device management is encrypted and authenticated.
+*    The "Online" status is based on recent heartbeats. A device might appear "Offline" if it hasn't sent a heartbeat recently, even if the app is technically still open.
+*    Remote logouts are enforced when the targeted device next communicates with the server. This typically happens within its heartbeat interval (around 2 minutes).
 
 
 ## Changelog
 
+v12.5 - Enhanced API Security: TOTP Endpoints Now Require Firebase ID Token Authentication
+*   All API calls to TOTP endpoints now require a valid Firebase ID Token (JWT) in the Authorization header.
+
 v12 - First implementation of TOTP
 
 v11 - major UI update
-- added pet notes
-- added analytics (history)
-- for commands -> npx expo install react-native-chart-kit react-native-svg
+*   added pet notes
+*   added analytics (history)
+*   for commands -> npx expo install react-native-chart-kit react-native-svg
 
 v10 - implemented cloudflare turnstile captcha for login and bug fixes in app/index.tsx
 
