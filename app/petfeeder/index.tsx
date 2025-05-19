@@ -2493,15 +2493,16 @@ export default function PetFeeder() {
                                       {statusTextComponent}
                                   </Text>
                                   <Text style={styles.deviceItemDetail}>Location: {item.country || 'N/A'}</Text>
+                                  <Text style={styles.deviceItemDetail}>IP: {item.ipAddress || 'N/A'}</Text>
                                   <Text style={styles.deviceItemDetail}>
                                       Last Active: {formatLastActiveTime(item.lastActive)}
                                       {isActiveNow && !isCurrent && item.status === 'active' && <Text style={{color: themeColors.success, fontSize: 12}}> (Online)</Text>}
                                   </Text>
 
-                                  {(isCurrent || item.status === 'logged_out') && item.deviceId &&
-                                      <TouchableOpacity onPress={() => { Clipboard.setString(item.deviceId); Alert.alert("Device ID Copied", item.deviceId);}}>
-                                          <Text style={styles.deviceIdText}>ID: {item.deviceId.substring(0,8)}...</Text>
-                                      </TouchableOpacity>
+                                  {item.deviceId &&
+                                    <TouchableOpacity onPress={() => { Clipboard.setString(item.deviceId); Alert.alert("Device ID Copied", item.deviceId);}}>
+                                        <Text style={styles.deviceIdText}>ID: {item.deviceId.substring(0,8)}...</Text>
+                                    </TouchableOpacity>
                                   }
                               </View>
 
