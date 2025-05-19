@@ -48,6 +48,10 @@
         "projectId": "891ce889-5cab-48e2-870e-8be5acef7f2b"
       }
     },
-    "owner": "roma5840"
+    "owner": "roma5840",
+    "updates": {
+      "fallbackToCacheTimeout": 0,
+      "enabled": true
+    }
   }
 }
