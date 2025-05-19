@@ -2451,52 +2451,67 @@ export default function PetFeeder() {
                         style={{width: '100%', marginBottom: 15}}
                         ItemSeparatorComponent={() => <View style={styles.listItemSeparatorThin} />}
                         renderItem={({ item }) => {
-                            const deviceInfo = parseUserAgentForDisplay(item.userAgent);
-                            const isCurrent = item.deviceId === currentDeviceId;
-                            const onlineThreshold = 75 * 1000;
-                            // (2 * 60 * 1000) + (15 * 1000) = 135 seconds
-                            const isActiveNow = item.status === 'active' && (Date.now() - item.lastActive) < onlineThreshold;
+                          const deviceInfo = parseUserAgentForDisplay(item.userAgent);
+                          const isCurrent = item.deviceId === currentDeviceId;
+                          const isActiveNow = item.status === 'active' && (Date.now() - item.lastActive) < (65 * 1000);
 
-                            return (
-                               <View style={styles.deviceItemContainer}>
-                                <Icon 
-                                    name={deviceInfo.icon} 
-                                    size={30} 
-                                    color={
-                                        isCurrent && item.status === 'active' ? themeColors.success : 
-                                        item.status === 'logged_out' ? themeColors.textMuted : 
-                                        item.status === 'pending_logout' ? themeColors.warning :
-                                        themeColors.accent
-                                    } 
-                                    style={styles.deviceItemIcon} 
-                                />
-                                <View style={styles.deviceItemInfo}>
-                                    <Text style={styles.deviceItemName}>
-                                        {deviceInfo.name}{' '}
-                                        {isCurrent && item.status === 'active' && <Text style={{color: themeColors.success, fontWeight: 'bold'}}>(Current)</Text>}
-                                        {item.status === 'logged_out' && <Text style={{color: themeColors.textMuted, fontStyle: 'italic'}}>(Logged Out)</Text>}
-                                        {item.status === 'pending_logout' && <Text style={{color: themeColors.warning, fontStyle: 'italic'}}>(Logging out...)</Text>}
-                                    </Text>
-                                    <Text style={styles.deviceItemDetail}>Location: {item.country || 'N/A'}</Text>
-                                    <Text style={styles.deviceItemDetail}>
-                                        Last Active: {formatLastActiveTime(item.lastActive)}
-                                        {isActiveNow && <Text style={{color: themeColors.success, fontSize: 12}}> (Online)</Text>}
-                                    </Text>
+                          let statusTextComponent = null;
+                          if (isCurrent) {
+                              if (item.status !== 'logged_out') {
+                                  statusTextComponent = <Text style={{color: themeColors.success, fontWeight: 'bold'}}>(Current)</Text>;
+                              } else {
+                                  statusTextComponent = <Text style={{color: themeColors.textMuted, fontStyle: 'italic'}}>(Logged Out)</Text>;
+                              }
+                          } else {
+                              if (item.status === 'pending_logout') {
+                                  statusTextComponent = <Text style={{color: themeColors.warning, fontStyle: 'italic'}}>(Logging out...)</Text>;
+                              } else if (item.status === 'logged_out') {
+                                  statusTextComponent = <Text style={{color: themeColors.textMuted, fontStyle: 'italic'}}>(Logged Out)</Text>;
+                              }
+                          }
 
-                                    {(isCurrent || item.status === 'logged_out') && item.deviceId && 
-                                        <TouchableOpacity onPress={() => { Clipboard.setString(item.deviceId); Alert.alert("Device ID Copied", item.deviceId);}}>
-                                            <Text style={styles.deviceIdText}>ID: {item.deviceId.substring(0,8)}...</Text>
-                                        </TouchableOpacity>
-                                    }
-                                </View>
+                          let iconColor = themeColors.accent;
+                          if (isCurrent && item.status !== 'logged_out') {
+                              iconColor = themeColors.success;
+                          } else if (item.status === 'logged_out') {
+                              iconColor = themeColors.textMuted;
+                          } else if (item.status === 'pending_logout') {
+                              iconColor = themeColors.warning;
+                          }
 
-                                {!isCurrent && item.status === 'active' && (
-                                    <TouchableOpacity onPress={() => handleLogoutSpecificDevice(item.deviceId)} style={styles.deviceItemLogoutButton} disabled={isLoadingDeviceSessions}>
-                                        <Icon name="log-out-outline" size={24} color={themeColors.danger} />
-                                    </TouchableOpacity>
-                                )}
-                            </View>
-                            );
+                          return (
+                            <View style={styles.deviceItemContainer}>
+                              <Icon
+                                  name={deviceInfo.icon}
+                                  size={30}
+                                  color={iconColor}
+                                  style={styles.deviceItemIcon}
+                              />
+                              <View style={styles.deviceItemInfo}>
+                                  <Text style={styles.deviceItemName}>
+                                      {deviceInfo.name}{' '}
+                                      {statusTextComponent}
+                                  </Text>
+                                  <Text style={styles.deviceItemDetail}>Location: {item.country || 'N/A'}</Text>
+                                  <Text style={styles.deviceItemDetail}>
+                                      Last Active: {formatLastActiveTime(item.lastActive)}
+                                      {isActiveNow && !isCurrent && item.status === 'active' && <Text style={{color: themeColors.success, fontSize: 12}}> (Online)</Text>}
+                                  </Text>
+
+                                  {(isCurrent || item.status === 'logged_out') && item.deviceId &&
+                                      <TouchableOpacity onPress={() => { Clipboard.setString(item.deviceId); Alert.alert("Device ID Copied", item.deviceId);}}>
+                                          <Text style={styles.deviceIdText}>ID: {item.deviceId.substring(0,8)}...</Text>
+                                      </TouchableOpacity>
+                                  }
+                              </View>
+
+                              {!isCurrent && item.status === 'active' && (
+                                  <TouchableOpacity onPress={() => handleLogoutSpecificDevice(item.deviceId)} style={styles.deviceItemLogoutButton} disabled={isLoadingDeviceSessions}>
+                                      <Icon name="log-out-outline" size={24} color={themeColors.danger} />
+                                  </TouchableOpacity>
+                              )}
+                          </View>
+                          );
                         }}
                     />
                 )}
