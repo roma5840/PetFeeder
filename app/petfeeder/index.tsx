@@ -1451,7 +1451,7 @@ export default function PetFeeder() {
                               heartbeatIntervalId = null;
                           }
                       }
-                  }, 2 * 60 * 1000); // heart beat is 2 minutes... so remote session logout would be 2 minutes after. 4 minutes preferable in prod
+                  }, 30 * 1000); // heart beat is 30 seconds... so remote session logout would be 30 seconds after. 4 minutes preferable in prod
 
               } catch (e) {
                   console.error("Error during initial logDeviceSessionStart in useEffect:", e);
@@ -1629,7 +1629,7 @@ export default function PetFeeder() {
     if (!timestamp) return "N/A";
     const now = Date.now();
     const diffSeconds = Math.round((now - timestamp) / 1000);
-    if (diffSeconds < 60) return "Just now";
+    if (diffSeconds < 65) return "Just now";
     if (diffSeconds < 3600) return `${Math.round(diffSeconds / 60)}m ago`;
     if (diffSeconds < 86400) return `${Math.round(diffSeconds / 3600)}h ago`;
     return new Date(timestamp).toLocaleDateString();
@@ -2453,7 +2453,8 @@ export default function PetFeeder() {
                         renderItem={({ item }) => {
                             const deviceInfo = parseUserAgentForDisplay(item.userAgent);
                             const isCurrent = item.deviceId === currentDeviceId;
-                            const onlineThreshold = (2 * 60 * 1000) + (15 * 1000); // 135 seconds
+                            const onlineThreshold = 75 * 1000;
+                            // (2 * 60 * 1000) + (15 * 1000) = 135 seconds
                             const isActiveNow = item.status === 'active' && (Date.now() - item.lastActive) < onlineThreshold;
 
                             return (
