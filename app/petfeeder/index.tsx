@@ -1,6 +1,10 @@
 // v13
 // added device logging
 
+// v13.2
+// fixed TOTP bypass security bug
+// fixed TOTP reverification on app restart bug
+
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
@@ -51,6 +55,7 @@ import {
 import QRCode from 'react-native-qrcode-svg';
 import * as Application from 'expo-application';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuthContext } from '../AuthContext'; 
 
 const timeToMinutes = (timeStr) => {
     if (!timeStr || typeof timeStr !== 'string') return Infinity;
@@ -188,6 +193,7 @@ export default function PetFeeder() {
   const schedulesListenerUnsubscribe = useRef(null);
   const historyListenerUnsubscribe = useRef(null);
 
+  const { isTotpSessionVerified } = useAuthContext();
   const auth = getAuth();
   const db = getDatabase();
   const user = auth.currentUser;
@@ -216,7 +222,7 @@ export default function PetFeeder() {
 
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !isTotpSessionVerified) {
         console.log("useEffect: No user found, skipping listener attachment.");
         setIsLoading(false);
         setIsLoadingHistory(false);
@@ -230,7 +236,7 @@ export default function PetFeeder() {
         return;
     }
 
-    console.log(`%cuseEffect: RUNNING for user ${user.uid}.`, 'color: blue; font-weight: bold;');
+    console.log(`%cuseEffect: RUNNING for user ${user.uid}. TOTP Session Verified: ${isTotpSessionVerified}`, 'color: blue; font-weight: bold;');
     setIsLoading(true);
     setIsLoadingHistory(true);
     setIsLoadingNotes(true);
@@ -446,14 +452,14 @@ export default function PetFeeder() {
 
 
     return () => {
-        console.log(`%cuseEffect: CLEANUP for user ${user?.uid}. Detaching listeners.`, 'color: orange;');
+        console.log(`%cuseEffect: CLEANUP for user ${user?.uid}. Detaching listeners. TOTPSessionVerified was: ${isTotpSessionVerified}`, 'color: orange;');
         if (statusListenerUnsubscribe.current) { statusListenerUnsubscribe.current(); statusListenerUnsubscribe.current = null; }
         if (schedulesListenerUnsubscribe.current) { schedulesListenerUnsubscribe.current(); schedulesListenerUnsubscribe.current = null; }
         if (historyListenerUnsubscribe.current) { historyListenerUnsubscribe.current(); historyListenerUnsubscribe.current = null; }
         if (foodConfigListenerUnsubscribe.current) { foodConfigListenerUnsubscribe.current(); foodConfigListenerUnsubscribe.current = null; }
         if (notesListenerUnsubscribe.current) { notesListenerUnsubscribe.current(); notesListenerUnsubscribe.current = null; }
     };
-  }, [user, db, calculateRecommendedWeight]);
+  }, [user, db, calculateRecommendedWeight, isTotpSessionVerified]);
 
   useEffect(() => {
     if (user) {

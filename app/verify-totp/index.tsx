@@ -1,5 +1,9 @@
-// v12:
-// added TOTP 2FA
+// v13.1:
+// added login persistence
+
+// v13.2
+// fixed TOTP bypass security bug
+// fixed TOTP reverification on app restart bug
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -19,7 +23,9 @@ import {
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { getDatabase, ref, get, update } from 'firebase/database';
 import { auth } from '../firebaseConfig';
+import { useAuthContext } from '../AuthContext';
 import Icon from "react-native-vector-icons/Ionicons";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const CLOUDFLARE_WORKER_TOTP_URL = "https://petfeeder-totp-auth.ryanoliver565.workers.dev";
 const SCREEN_TIMEOUT_DURATION_MS = 3 * 60 * 1000; // 3 minutes for inactivity
@@ -40,6 +46,9 @@ export default function VerifyTotpScreen() {
   const otpInputRefs = useRef<(TextInput | null)[]>([]);
   const isProgrammaticFocusChange = useRef(false);
   const timeoutIdRef = useRef<NodeJS.Timeout | null>(null);
+
+  const TOTP_VERIFIED_SESSION_KEY_PREFIX = 'totpVerifiedForUser_';
+  const { setTotpSessionVerified } = useAuthContext();
 
   useEffect(() => {
     navigation.setOptions({ headerShown: false, gestureEnabled: false });
@@ -74,6 +83,7 @@ export default function VerifyTotpScreen() {
       );
       setIsLoading(true);
       try {
+        setTotpSessionVerified(false);
         await auth.signOut();
       } catch (error) {
         console.error("Error signing out on timeout:", error);
@@ -111,12 +121,14 @@ export default function VerifyTotpScreen() {
         setUserData(snapshot.val());
       } else {
         Alert.alert("Error", "TOTP configuration not found. Please contact support or try re-login.");
+        setTotpSessionVerified(false);
         await auth.signOut();
         router.replace('/login');
       }
     } catch (error) {
       // console.error("Error fetching TOTP user data:", error);
       Alert.alert("Error", "Could not fetch user data. Please try again.");
+      setTotpSessionVerified(false);
       await auth.signOut();
       router.replace('/login');
     } finally {
@@ -225,6 +237,7 @@ export default function VerifyTotpScreen() {
     if (!currentUser) {
         Alert.alert("Error", "User session expired. Please log in again.");
         setIsLoading(false);
+        setTotpSessionVerified(false);
         router.replace('/login');
         return;
     }
@@ -255,7 +268,18 @@ export default function VerifyTotpScreen() {
       if (response.ok && result.verified) {
         // Alert.alert("Success", "2FA Verified!");
         if (timeoutIdRef.current) clearTimeout(timeoutIdRef.current);
-        router.replace('/petfeeder');
+          setTotpSessionVerified(true);
+          const currentUserForStorage = auth.currentUser;
+          if (currentUserForStorage) {
+              try {
+                  await AsyncStorage.setItem(TOTP_VERIFIED_SESSION_KEY_PREFIX + currentUserForStorage.uid, "true");
+                  // console.log(`verify-totp: Stored TOTP session verification for ${currentUserForStorage.uid}`);
+              } catch (e) {
+                  // console.error("verify-totp: Error storing TOTP session verification", e);
+              }
+          }
+          router.replace('/petfeeder');
+
       } else {
         Alert.alert("Verification Failed", result.error || "Invalid TOTP code. Please try again.");
         setTotpDigits(Array(6).fill(''));
@@ -292,6 +316,7 @@ export default function VerifyTotpScreen() {
     if (!currentUser) {
         Alert.alert("Error", "User session expired. Please log in again.");
         setIsLoading(false);
+        setTotpSessionVerified(false);
         router.replace('/login');
         return;
     }
@@ -320,7 +345,20 @@ export default function VerifyTotpScreen() {
             const updatedHashedCodes = (userData.hashedRecoveryCodes || []).filter(hash => hash !== result.usedCodeHash);
             await update(userTotpRef, { hashedRecoveryCodes: updatedHashedCodes });
             if (timeoutIdRef.current) clearTimeout(timeoutIdRef.current);
-            router.replace('/petfeeder');
+            setTotpSessionVerified(true);
+
+
+            const currentUserForStorage = auth.currentUser;
+            if (currentUserForStorage) {
+                try {
+                    await AsyncStorage.setItem(TOTP_VERIFIED_SESSION_KEY_PREFIX + currentUserForStorage.uid, "true");
+                    // console.log(`verify-totp: Stored TOTP session verification for ${currentUserForStorage.uid} (recovery)`);
+                } catch (e) {
+                    // console.error("verify-totp: Error storing TOTP session verification (recovery)", e);
+                }
+            }
+    router.replace('/petfeeder');
+
         } else {
             Alert.alert("Verification Failed", result.error || "Invalid recovery code.");
             setRecoveryCode('');
@@ -475,6 +513,7 @@ export default function VerifyTotpScreen() {
             style={[styles.signOutButton, isLoading && styles.disabledSignOutButton]}
             onPress={async () => {
               if (timeoutIdRef.current) clearTimeout(timeoutIdRef.current);
+              setTotpSessionVerified(false);
 
               setIsLoading(true);
               await auth.signOut();

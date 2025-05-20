@@ -1,7 +1,8 @@
 ## Current Version
 
-### v13.1 - Login Persistence
-*   Added login persistence: Users remain logged in even after closing the app or removing it from multitasking.
+### v13.2 - Security Bug Fixes in Verify-TOTP
+*   Bug fix in verify-totp where users could potentially bypass due to bugs in login persistence.
+*   **v13.1:** Added login persistence: Users remain logged in even after closing the app or removing it from multitasking.
 
 #### General Changes in v13:
 *   Device Management: Users can now log out specific devices or all devices at once.

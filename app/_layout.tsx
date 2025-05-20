@@ -1,5 +1,10 @@
 // v13.1:
 // added login persistence
+
+// v13.2
+// fixed TOTP bypass security bug
+// fixed TOTP reverification on app restart bug
+
 import { Stack, useRouter, useSegments } from "expo-router";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { useEffect, useState, useRef } from "react";
@@ -7,154 +12,196 @@ import { auth } from "./firebaseConfig";
 import { ActivityIndicator, View, StyleSheet, Text } from "react-native";
 import { getDatabase, ref, get } from "firebase/database";
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AuthProvider, useAuthContext } from './AuthContext';
 
 const USER_SESSION_KEY = 'petfeederUserSession';
+const TOTP_VERIFIED_SESSION_KEY_PREFIX = 'totpVerifiedForUser_';
 
-export default function RootLayout() {
+export default function RootLayoutWrapper() {
+  return (
+    <AuthProvider>
+      <RootLayout />
+    </AuthProvider>
+  );
+}
+
+function RootLayout() {
   const router = useRouter();
   const segments = useSegments();
   const [initialUser, setInitialUser] = useState<User | null | undefined>(undefined);
-  const isNavigationReady = useRef(false);
+  const [isRouterReady, setIsRouterReady] = useState(false);
   const [authProcessComplete, setAuthProcessComplete] = useState(false);
+  const { isTotpSessionVerified, setTotpSessionVerified } = useAuthContext();
+  const lastActiveUidRef = useRef<string | null>(null);
 
   const authFlowRoutes = ["login", "register", "resetpassword", "verify-totp"];
   const setupRoutes = ["petname", "confirm"];
 
   useEffect(() => {
-    // console.log("_layout: Mounting. Setting up onAuthStateChanged listener (for persistent session).");
-
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      // console.log(`_layout: onAuthStateChanged triggered. Firebase User: ${user ? user.uid : "null"}`);
-
       if (user) {
+        // console.log(`_layout (onAuthStateChanged): User ${user.uid} is now active.`);
         setInitialUser(user);
+        lastActiveUidRef.current = user.uid;
         try {
           await AsyncStorage.setItem(USER_SESSION_KEY, JSON.stringify({ uid: user.uid, email: user.email }));
-          console.log(`_layout: User ${user.uid} session active. Stored basic info in AsyncStorage.`);
         } catch (error) {
-          // console.error("_layout: Error saving user session info to AsyncStorage", error);
+          // console.error("_layout (onAuthStateChanged): Error saving user session info to AsyncStorage", error);
         }
       } else {
+        // console.log("_layout (onAuthStateChanged): No user. Processing logout.");
+        if (lastActiveUidRef.current) {
+          try {
+            await AsyncStorage.removeItem(TOTP_VERIFIED_SESSION_KEY_PREFIX + lastActiveUidRef.current);
+          } catch (error) {
+            // console.error("_layout (onAuthStateChanged): Error clearing TOTP session verification from AsyncStorage", error);
+          }
+          lastActiveUidRef.current = null;
+        }
         setInitialUser(null);
+        setTotpSessionVerified(false);
         try {
           await AsyncStorage.removeItem(USER_SESSION_KEY);
-          console.log("_layout: User logged out or no active session. Cleared basic info from AsyncStorage.");
         } catch (error) {
-          // console.error("_layout: Error clearing user session info from AsyncStorage", error);
+          // console.error("_layout (onAuthStateChanged): Error clearing user session info from AsyncStorage", error);
         }
       }
 
       if (!authProcessComplete) {
-        // console.log("_layout: Initial auth processing (via onAuthStateChanged) complete. Setting authProcessComplete=true.");
         setAuthProcessComplete(true);
       }
     });
 
     return () => {
-      // console.log("_layout: Unsubscribing from onAuthStateChanged.");
       unsubscribe();
     };
-  }, []);
+  }, [authProcessComplete, setTotpSessionVerified]);
 
   useEffect(() => {
-    if (!authProcessComplete || !isNavigationReady.current || initialUser === undefined) {
-      // console.log(`_layout (Navigation): Deferred. authComplete=${authProcessComplete}, navReady=${isNavigationReady.current}, initialUser=${initialUser === undefined ? "undefined" : (initialUser?.uid || "null")}`);
+    const timer = setTimeout(() => {
+      if (!isRouterReady) {
+        setIsRouterReady(true);
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [isRouterReady]);
+
+  useEffect(() => {
+    if (!authProcessComplete || !isRouterReady || initialUser === undefined) {
       return;
     }
 
-    // console.log(`_layout (Navigation): Evaluating. User: ${initialUser?.uid}, EmailVerified: ${initialUser?.emailVerified}, Segments: ${segments.join('/')}`);
-
-    const user = initialUser;
+    const userFromState = initialUser;
     const currentTopLevelSegment = segments[0] ?? '';
     const isCurrentlyOnAuthFlowRoute = authFlowRoutes.includes(currentTopLevelSegment);
+    const isCurrentlyOnSetupRoute = setupRoutes.includes(currentTopLevelSegment);
 
-    const navigateUser = async (currentUser: User) => {
+    const navigateUser = async (currentUserForNav: User) => {
+      const liveAuthUser = auth.currentUser;
+      if (!liveAuthUser || liveAuthUser.uid !== currentUserForNav.uid) {
+        console.log(`_layout (navigateUser): User ${currentUserForNav.uid} is stale or logout in progress (live auth: ${liveAuthUser ? liveAuthUser.uid : 'null'}). Aborting navigation logic.`);
+        return;
+      }
+
+      let sessionVerifiedForNavigationLogic = false;
+
       try {
-        console.log(`_layout (navigateUser): For user ${currentUser.uid}. Current segment: ${currentTopLevelSegment}`);
         const db = getDatabase();
-        const userRef = ref(db, `users/${currentUser.uid}`);
+        const userRef = ref(db, `users/${currentUserForNav.uid}`);
         const snapshot = await get(userRef);
-        const userData = snapshot.val();
+        
+        let userDataFromDb = null; 
+        let isTotpEnabledByDb = false;
+        let hasPetData = false;
 
-        const isTotpEnabledAndSetup = userData?.totp?.enabled === true && userData?.totp?.setupComplete === true;
-        const hasPetData = userData?.petName;
-        const isCurrentlyOnSetupRoute = setupRoutes.includes(currentTopLevelSegment);
+        if (snapshot.exists()) {
+            userDataFromDb = snapshot.val();
+            isTotpEnabledByDb = userDataFromDb?.totp?.enabled === true && userDataFromDb?.totp?.setupComplete === true;
+            hasPetData = !!userDataFromDb?.petName; 
+        } else {
+            console.warn(`_layout (navigateUser): User data node users/${currentUserForNav.uid} not found in Realtime Database. Proceeding as if new user without pet/TOTP data.`);
+        }
+        
+        if (isTotpEnabledByDb) {
+            const storedTotpVerification = await AsyncStorage.getItem(TOTP_VERIFIED_SESSION_KEY_PREFIX + currentUserForNav.uid);
+            sessionVerifiedForNavigationLogic = storedTotpVerification === "true";
+        } else {
+            sessionVerifiedForNavigationLogic = true;
+        }
+        setTotpSessionVerified(sessionVerifiedForNavigationLogic);
 
-        console.log(`_layout (navigateUser): UserData: TOTP=${isTotpEnabledAndSetup}, PetData=${!!hasPetData}`);
-
-        if (isTotpEnabledAndSetup) {
-          if (currentTopLevelSegment !== 'verify-totp' && currentTopLevelSegment !== 'petfeeder') {
-            console.log(`_layout (navigateUser): User ${currentUser.uid} has TOTP. Redirecting to /verify-totp from ${currentTopLevelSegment}.`);
+        if (isTotpEnabledByDb && !sessionVerifiedForNavigationLogic) {
+          if (currentTopLevelSegment !== 'verify-totp') {
             router.replace({
               pathname: '/verify-totp',
-              params: { userId: currentUser.uid, userEmail: currentUser.email ?? "" },
+              params: { userId: currentUserForNav.uid, userEmail: currentUserForNav.email ?? "" },
             });
             return;
           }
+          return;
+        }
+
+        if (currentTopLevelSegment === 'verify-totp' && (!isTotpEnabledByDb || sessionVerifiedForNavigationLogic)) {
+            if (hasPetData) {
+                router.replace('/petfeeder');
+            } else {
+                router.replace('/');
+            }
+            return;
         }
 
         if (hasPetData) {
-          if (currentTopLevelSegment !== 'petfeeder' &&
-              !isCurrentlyOnSetupRoute &&
-              !(isTotpEnabledAndSetup && currentTopLevelSegment === 'verify-totp')) {
-            console.log(`_layout (navigateUser): User ${currentUser.uid} has pet data. Redirecting to /petfeeder from ${currentTopLevelSegment}.`);
+          if (currentTopLevelSegment !== 'petfeeder' && !isCurrentlyOnSetupRoute) {
+            console.log(`_layout (navigateUser): User ${currentUserForNav.uid} has pet data. Redirecting to /petfeeder.`);
             router.replace('/petfeeder');
             return;
           }
-        } else { // No pet data
-          if (currentTopLevelSegment !== '' && currentTopLevelSegment !== 'index' &&
-              !isCurrentlyOnSetupRoute &&
-              !(isTotpEnabledAndSetup && currentTopLevelSegment === 'verify-totp')) {
-            console.log(`_layout (navigateUser): User ${currentUser.uid} has NO pet data. Redirecting to / (index) from ${currentTopLevelSegment}.`);
+        } else {
+          if (currentTopLevelSegment !== '' && currentTopLevelSegment !== 'index' && !isCurrentlyOnSetupRoute) {
+            console.log(`_layout (navigateUser): User ${currentUserForNav.uid} has NO pet data. Redirecting to / (index).`);
             router.replace('/');
             return;
           }
         }
-        // console.log(`_layout (navigateUser): No specific redirect needed for user ${currentUser.uid} from ${currentTopLevelSegment}.`);
 
       } catch (error) {
-        // console.error("_layout (navigateUser): Error fetching user data for navigation:", error);
+        console.error("_layout (navigateUser): Error during navigation logic:", error);
+        setTotpSessionVerified(false);
         if (!isCurrentlyOnAuthFlowRoute) {
+          try {
+            if(auth.currentUser) {
+              await auth.signOut();
+            }
+          } catch (signOutError) {
+            console.error("_layout (navigateUser): Error signing out after navigation error:", signOutError);
+          }
           router.replace('/login');
         }
       }
     };
 
-    if (user) {
-      if (user.emailVerified) {
-        // console.log(`_layout (Navigation): User ${user.uid} email is verified. Proceeding to data checks for navigation.`);
-        navigateUser(user);
+    if (userFromState) {
+      if (userFromState.emailVerified) {
+        navigateUser(userFromState);
       } else {
-        console.log(`_layout (Navigation): User ${user.uid} email NOT verified.`);
+        // console.log(`_layout (Navigation): User ${userFromState.uid} email NOT verified.`);
+        setTotpSessionVerified(false);
         if (!isCurrentlyOnAuthFlowRoute) {
-          console.log("_layout (Navigation): Email not verified. Redirecting to /login.");
+          // console.log("_layout (Navigation): Email not verified. Redirecting to /login.");
           router.replace('/login');
         }
       }
     } else { // No user
-      console.log("_layout (Navigation): No user logged in.");
+      // console.log("_layout (Navigation): No user logged in (initialUser is null).");
       if (!isCurrentlyOnAuthFlowRoute) {
-        console.log("_layout (Navigation): No user. Redirecting to /login.");
+        // console.log("_layout (Navigation): No user & not on auth route. Redirecting to /login.");
         router.replace('/login');
       }
     }
-  }, [authProcessComplete, initialUser, segments, router, isNavigationReady.current]);
+  }, [authProcessComplete, initialUser, segments, router, isRouterReady, setTotpSessionVerified]);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!isNavigationReady.current) {
-        // console.log("_layout: Marking Navigation Ready via setTimeout.");
-        isNavigationReady.current = true;
-        if (authProcessComplete) {
-          // console.log("_layout: Navigation ready, auth was complete. Forcing navigation check by re-setting initialUser.");
-          setInitialUser(currentUser => currentUser);
-        }
-      }
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [authProcessComplete]);
 
-  if (initialUser === undefined || !authProcessComplete) {
+  if (initialUser === undefined || !authProcessComplete || !isRouterReady) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#A06CD5" />
