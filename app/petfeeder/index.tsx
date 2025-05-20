@@ -2275,16 +2275,22 @@ export default function PetFeeder() {
                         ItemSeparatorComponent={() => <View style={styles.listItemSeparatorThin} />}
                     />
                 )}
-                <TextInput
-                    style={[styles.modalInput, {marginTop: 15, height: 80}]}
-                    placeholder={editingNote ? "Edit note..." : "Add a new note..."}
-                    placeholderTextColor={themeColors.textMuted}
-                    value={currentNoteText}
-                    onChangeText={setCurrentNoteText}
-                    multiline
-                    textAlignVertical="top"
-                    editable={!isSavingNote}
-                />
+                <View style={styles.noteTextInputContainer}>
+                    <TextInput
+                        style={[styles.modalInput, {marginTop: 15, height: 80, marginBottom: 2}]}
+                        placeholder={editingNote ? "Edit note..." : "Add a new note..."}
+                        placeholderTextColor={themeColors.textMuted}
+                        value={currentNoteText}
+                        onChangeText={setCurrentNoteText}
+                        multiline
+                        textAlignVertical="top"
+                        editable={!isSavingNote}
+                        maxLength={100}
+                    />
+                    <Text style={styles.noteCharCounter}>
+                        {currentNoteText.length}/100
+                    </Text>
+                </View>
                 <TouchableOpacity
                     style={[styles.modalButton, styles.modalPrimaryButton, (isSavingNote || !currentNoteText.trim()) && styles.buttonDisabled]}
                     onPress={handleSavePetNote}
@@ -3505,5 +3511,15 @@ const styles = StyleSheet.create({
   },
   deviceItemLogoutButton: { padding: 10, marginLeft: 10, },
   deviceIdText: { fontSize: 11, color: themeColors.textMuted, marginTop: 2, fontStyle: 'italic' },
+  noteTextInputContainer: {
+    width: '100%',
+  },
+  noteCharCounter: {
+    textAlign: 'right',
+    fontSize: 12,
+    color: themeColors.textMuted,
+    paddingRight: 8,
+  },
+
 
 });
