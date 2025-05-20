@@ -795,6 +795,8 @@ export default function PetFeeder() {
     }
   };
 
+
+  // ACCOUNT SETTINGS
   const openUpdateModal = () => {
     setTempPetDetails({
         name: petName,
@@ -1002,6 +1004,7 @@ export default function PetFeeder() {
   };
 
 
+  // HISTORY
   const formatHistoryTimestamp = (timestamp) => {
     if (!timestamp || isNaN(timestamp)) return "Invalid Date";
     try {
@@ -1013,6 +1016,8 @@ export default function PetFeeder() {
     }
   };
 
+
+  // FOOD LEVEL
   const openUpdateFoodLevelModal = () => {
     setTempInputFoodLevel(currentFoodLevel.toString());
     setTempInputHopperCapacity(hopperCapacity.toString());
@@ -1073,6 +1078,8 @@ export default function PetFeeder() {
     setGramsToAdd('');
   };
 
+
+  // PET NOTES
   const handleSavePetNote = async () => {
     if (!currentNoteText.trim()) {
         Alert.alert("Empty Note", "Cannot save an empty note.");
@@ -1131,6 +1138,8 @@ export default function PetFeeder() {
     ]);
   };
 
+
+  // ANALYTICS
   const handleApplyHistoryFilter = () => {
     setHistoryFilterConfig(tempHistoryFilterConfig);
     setShowHistoryFilterModal(false);
@@ -1149,6 +1158,8 @@ export default function PetFeeder() {
     }
   };
 
+
+  // TOTP MANAGEMENT
   const openTotpManagement = () => {
     setShowSettingsModal(false);
     if (userTotpConfig?.enabled && userTotpConfig?.setupComplete) {
@@ -1241,11 +1252,43 @@ export default function PetFeeder() {
       }
   };
 
-  const handleFinishTotpSetup = () => {
+  const handleFinishTotpSetup = async () => {
       if (!confirmSavedRecoveryCodes) {
           Alert.alert("Confirmation Needed", "Please confirm you have saved your recovery codes.");
           return;
       }
+
+      if (auth.currentUser && currentDeviceId) {
+          setIsTotpLoading(true);
+          try {
+              // console.log(`[2FA Enabled] Attempting to log out all other devices for user ${auth.currentUser.uid}, current device: ${currentDeviceId}`);
+              await _callDeviceApi(
+                  '/devices/logout/all-others',
+                  'POST',
+                  auth.currentUser,
+                  { currentDeviceId }
+              );
+              Alert.alert(
+                  "2FA Enabled & Devices Secured",
+                  "Two-Factor Authentication is now active. All your other active sessions have been instructed to log out for enhanced security."
+              );
+          } catch (error: any) {
+              // console.warn("[2FA Enabled] Failed to automatically log out other devices:", error.message);
+              Alert.alert(
+                  "2FA Enabled (Action Required)",
+                  "Two-Factor Authentication is active, but we couldn't automatically log out your other sessions. Please review and log out other devices manually via Account Settings > Manage Devices for full security."
+              );
+          } finally {
+              setIsTotpLoading(false);
+          }
+      } else {
+          // console.warn("[2FA Enabled] User or currentDeviceId not available. Skipping automatic logout of other devices.");
+          Alert.alert(
+              "2FA Enabled (Action Recommended)",
+              "Two-Factor Authentication is now active. For enhanced security, please review your active sessions in Account Settings > Manage Devices and log out any unrecognized devices."
+          );
+      }
+
       setShowTotpManagementModal(false);
       setTotpStep('initial');
 
@@ -1401,6 +1444,8 @@ export default function PetFeeder() {
       }
   };
 
+
+  // DEVICE MANAGEMENT
   const getOrCreateDeviceId = async (): Promise<string> => {
     let deviceId = await AsyncStorage.getItem('app_device_id_v2');
     if (!deviceId) {
@@ -1563,6 +1608,15 @@ export default function PetFeeder() {
 
   const handleLogoutSpecificDevice = async (deviceIdToLogout: string) => {
     if (!auth.currentUser || !currentDeviceId) return;
+
+    if (!(userTotpConfig?.enabled && userTotpConfig?.setupComplete)) {
+      Alert.alert(
+        "2FA Required",
+        "Please enable Two-Factor Authentication from Account Settings to log out other devices."
+      );
+      return;
+    }
+
     Alert.alert(
         "Confirm Logout",
         "Are you sure you want to log out this device session? The device will be signed out on its next activity check.",
@@ -1589,7 +1643,16 @@ export default function PetFeeder() {
 
   const handleLogoutAllOtherDevices = async () => {
     if (!auth.currentUser || !currentDeviceId) return;
-     Alert.alert(
+
+    if (!(userTotpConfig?.enabled && userTotpConfig?.setupComplete)) {
+      Alert.alert(
+        "2FA Required",
+        "Please enable Two-Factor Authentication from Account Settings to log out other devices."
+      );
+      return;
+    }
+
+      Alert.alert(
         "Confirm Logout All Others",
         "Are you sure you want to log out all other device sessions? This will not affect your current session. Other devices will be signed out on their next activity check.",
         [

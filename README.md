@@ -1,7 +1,7 @@
 ## Current Version
 
-### v13 - Device Logging
-*   Added device logging
+### v13 - Device Management
+*   Added Device Management (log out specific devices/log out all devices)
 *   Command done: npx expo install expo-application
 
 ## Usage on EAS Build
@@ -57,22 +57,23 @@ Exceeding these limits will result in temporary restrictions on the respective a
 
 ## Device Logging Key Features
 
-*   **Automatic Device Registration:** When a user logs in, their device is automatically registered with a unique ID and its type (e.g., iOS, Android) is recorded.
+*   **Automatic Device Registration:** When a user logs in, their device is automatically registered with a unique ID and its type (e.g., iOS, Android) is recorded. The IP Address is also recorded.
 *   **Last Active Tracking:** The system keeps track of the last time each device communicated with the server.
-*   **"Online" Status:** Devices that have recently sent a heartbeat (within the last ~2 minutes) are shown as "Online".
+*   **"Online" Status:** Devices that have recently sent a heartbeat (within the last ~30 seconds) are shown as "Online".
 *   **Location Indication:** An approximate geographical location (country) for each session is displayed (still needs further testing).
 *   **Session Viewing:** Users can access a list in their account settings showing:
     *   Currently active devices.
     *   Devices pending logout (remotely instructed to log out).
     *   Recently logged out devices.
 *   **Manage Other Sessions:**
-    *   **Remotely Log Out Specific Device:** Users can select another device from their list and instruct it to log out. The target device will be logged out upon its next activity check with the server (typically within 2 minutes).
+    *   **Remotely Log Out Specific Device:** Users can select another device from their list and instruct it to log out. The target device will be logged out upon its next activity check with the server (typically within 30 seconds).
     *   **Remotely Log Out All Other Devices:** Users can log out all sessions except the current one. This also invalidates older session tokens for enhanced security.
 
 ### Notes
 *    All communication with the server for device management is encrypted and authenticated.
 *    The "Online" status is based on recent heartbeats. A device might appear "Offline" if it hasn't sent a heartbeat recently, even if the app is technically still open.
-*    Remote logouts are enforced when the targeted device next communicates with the server. This typically happens within its heartbeat interval (around 2 minutes).
+*    Remote logouts are enforced when the targeted device next communicates with the server. This typically happens within its heartbeat interval (around 30 seconds).
+*    2FA must be enabled to be able to log out other devices.
 
 
 ## Changelog
