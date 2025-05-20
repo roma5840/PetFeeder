@@ -1,8 +1,13 @@
 ## Current Version
 
-### v13 - Device Management
-*   Added Device Management (log out specific devices/log out all devices)
-*   Command done: npx expo install expo-application
+### v13.1 - Login Persistence
+*   Added login persistence: Users remain logged in even after closing the app or removing it from multitasking.
+
+#### General Changes in v13:
+*   Device Management: Users can now log out specific devices or all devices at once.
+*   2FA Requirement for Session Control: Users must enable two-factor authentication (2FA) to remove device sessions.
+*   OTA Update Support: Added support for over-the-air updates for preview builds using EAS.
+*   Command Executed: npx expo install expo-application
 
 ## Usage on EAS Build
 *   EAS builds are only used if there are custom native modules (e.g. soon-to-be-implemented BLE feature for ESP32 connection)

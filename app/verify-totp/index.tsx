@@ -336,8 +336,8 @@ export default function VerifyTotpScreen() {
   if (!userData && isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#A06CD5" />
-        <Text style={styles.loadingText}>Loading user data...</Text>
+        <ActivityIndicator size="large" color="#7B2CBF" />
+        <Text style={styles.loadingText}>Loading Pet Feeder...</Text>
       </View>
     );
   }
@@ -519,7 +519,7 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 10,
     fontSize: 16,
-    color: '#A06CD5',
+    color: '#5E5E5E',
   },
   headerSection: {
     alignItems: 'center',

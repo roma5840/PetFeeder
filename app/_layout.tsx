@@ -1,48 +1,76 @@
-// v12:
-// added TOTP 2FA
-
+// v13.1:
+// added login persistence
 import { Stack, useRouter, useSegments } from "expo-router";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { useEffect, useState, useRef } from "react";
 import { auth } from "./firebaseConfig";
 import { ActivityIndicator, View, StyleSheet, Text } from "react-native";
 import { getDatabase, ref, get } from "firebase/database";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const USER_SESSION_KEY = 'petfeederUserSession';
 
 export default function RootLayout() {
   const router = useRouter();
   const segments = useSegments();
-  const [isAuthReady, setIsAuthReady] = useState(false);
-  const [initialUser, setInitialUser] = useState<User | null>(null);
+  const [initialUser, setInitialUser] = useState<User | null | undefined>(undefined);
   const isNavigationReady = useRef(false);
+  const [authProcessComplete, setAuthProcessComplete] = useState(false);
 
   const authFlowRoutes = ["login", "register", "resetpassword", "verify-totp"];
   const setupRoutes = ["petname", "confirm"];
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setInitialUser(user);
-      if (!isAuthReady) {
-        setIsAuthReady(true);
+    // console.log("_layout: Mounting. Setting up onAuthStateChanged listener (for persistent session).");
+
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      // console.log(`_layout: onAuthStateChanged triggered. Firebase User: ${user ? user.uid : "null"}`);
+
+      if (user) {
+        setInitialUser(user);
+        try {
+          await AsyncStorage.setItem(USER_SESSION_KEY, JSON.stringify({ uid: user.uid, email: user.email }));
+          console.log(`_layout: User ${user.uid} session active. Stored basic info in AsyncStorage.`);
+        } catch (error) {
+          // console.error("_layout: Error saving user session info to AsyncStorage", error);
+        }
+      } else {
+        setInitialUser(null);
+        try {
+          await AsyncStorage.removeItem(USER_SESSION_KEY);
+          console.log("_layout: User logged out or no active session. Cleared basic info from AsyncStorage.");
+        } catch (error) {
+          // console.error("_layout: Error clearing user session info from AsyncStorage", error);
+        }
+      }
+
+      if (!authProcessComplete) {
+        // console.log("_layout: Initial auth processing (via onAuthStateChanged) complete. Setting authProcessComplete=true.");
+        setAuthProcessComplete(true);
       }
     });
-    return () => unsubscribe();
+
+    return () => {
+      // console.log("_layout: Unsubscribing from onAuthStateChanged.");
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
-    if (!isAuthReady || !isNavigationReady.current) {
-      // console.log(`_layout: Navigation deferred: isAuthReady=${isAuthReady}, isNavigationReady=${isNavigationReady.current}`);
+    if (!authProcessComplete || !isNavigationReady.current || initialUser === undefined) {
+      // console.log(`_layout (Navigation): Deferred. authComplete=${authProcessComplete}, navReady=${isNavigationReady.current}, initialUser=${initialUser === undefined ? "undefined" : (initialUser?.uid || "null")}`);
       return;
     }
+
+    // console.log(`_layout (Navigation): Evaluating. User: ${initialUser?.uid}, EmailVerified: ${initialUser?.emailVerified}, Segments: ${segments.join('/')}`);
 
     const user = initialUser;
     const currentTopLevelSegment = segments[0] ?? '';
     const isCurrentlyOnAuthFlowRoute = authFlowRoutes.includes(currentTopLevelSegment);
-    const isCurrentlyOnSetupRoute = setupRoutes.includes(currentTopLevelSegment);
-
-    // console.log(`_layout: User: ${user?.uid}, EmailVerified: ${user?.emailVerified}, CurrentSegment: ${currentTopLevelSegment}`);
 
     const navigateUser = async (currentUser: User) => {
       try {
+        console.log(`_layout (navigateUser): For user ${currentUser.uid}. Current segment: ${currentTopLevelSegment}`);
         const db = getDatabase();
         const userRef = ref(db, `users/${currentUser.uid}`);
         const snapshot = await get(userRef);
@@ -50,37 +78,42 @@ export default function RootLayout() {
 
         const isTotpEnabledAndSetup = userData?.totp?.enabled === true && userData?.totp?.setupComplete === true;
         const hasPetData = userData?.petName;
+        const isCurrentlyOnSetupRoute = setupRoutes.includes(currentTopLevelSegment);
 
-        // console.log(`_layout: UserData fetched. TOTP Enabled: ${isTotpEnabledAndSetup}, Has Pet Data: ${hasPetData}`);
+        console.log(`_layout (navigateUser): UserData: TOTP=${isTotpEnabledAndSetup}, PetData=${!!hasPetData}`);
 
         if (isTotpEnabledAndSetup) {
           if (currentTopLevelSegment !== 'verify-totp' && currentTopLevelSegment !== 'petfeeder') {
-            console.log(`_layout: User ${currentUser.uid} has TOTP. Redirecting to /verify-totp.`);
+            console.log(`_layout (navigateUser): User ${currentUser.uid} has TOTP. Redirecting to /verify-totp from ${currentTopLevelSegment}.`);
             router.replace({
               pathname: '/verify-totp',
-              params: { userId: currentUser.uid, userEmail: currentUser.email },
+              params: { userId: currentUser.uid, userEmail: currentUser.email ?? "" },
             });
             return;
           }
         }
 
         if (hasPetData) {
-          if (currentTopLevelSegment !== 'petfeeder' && !isCurrentlyOnSetupRoute && currentTopLevelSegment !== 'verify-totp') {
-            console.log(`_layout: User ${currentUser.uid} has pet data. Redirecting to /petfeeder.`);
+          if (currentTopLevelSegment !== 'petfeeder' &&
+              !isCurrentlyOnSetupRoute &&
+              !(isTotpEnabledAndSetup && currentTopLevelSegment === 'verify-totp')) {
+            console.log(`_layout (navigateUser): User ${currentUser.uid} has pet data. Redirecting to /petfeeder from ${currentTopLevelSegment}.`);
             router.replace('/petfeeder');
-          } else {
-            // console.log(`_layout: User ${currentUser.uid} has pet data, already on petfeeder, setup, or verify-totp. No redirect.`);
+            return;
           }
-        } else {
-          if (currentTopLevelSegment !== '' && currentTopLevelSegment !== 'index' && !isCurrentlyOnSetupRoute && currentTopLevelSegment !== 'verify-totp') {
-            console.log(`_layout: User ${currentUser.uid} has NO pet data. Redirecting to / (index for pet selection).`);
+        } else { // No pet data
+          if (currentTopLevelSegment !== '' && currentTopLevelSegment !== 'index' &&
+              !isCurrentlyOnSetupRoute &&
+              !(isTotpEnabledAndSetup && currentTopLevelSegment === 'verify-totp')) {
+            console.log(`_layout (navigateUser): User ${currentUser.uid} has NO pet data. Redirecting to / (index) from ${currentTopLevelSegment}.`);
             router.replace('/');
-          } else {
-            // console.log(`_layout: User ${currentUser.uid} has NO pet data, already on index, setup, or verify-totp. No redirect.`);
+            return;
           }
         }
+        // console.log(`_layout (navigateUser): No specific redirect needed for user ${currentUser.uid} from ${currentTopLevelSegment}.`);
+
       } catch (error) {
-        console.error("_layout: Error fetching user data for navigation:", error);
+        // console.error("_layout (navigateUser): Error fetching user data for navigation:", error);
         if (!isCurrentlyOnAuthFlowRoute) {
           router.replace('/login');
         }
@@ -89,25 +122,39 @@ export default function RootLayout() {
 
     if (user) {
       if (user.emailVerified) {
-        // console.log(`_layout: User ${user.uid} email is verified. Proceeding to data checks.`);
+        // console.log(`_layout (Navigation): User ${user.uid} email is verified. Proceeding to data checks for navigation.`);
         navigateUser(user);
       } else {
-        // console.log(`_layout: User ${user.uid} email NOT verified.`);
+        console.log(`_layout (Navigation): User ${user.uid} email NOT verified.`);
         if (!isCurrentlyOnAuthFlowRoute) {
-          console.log("_layout: Email not verified. Redirecting to /login.");
+          console.log("_layout (Navigation): Email not verified. Redirecting to /login.");
           router.replace('/login');
         }
       }
-    } else {
-      // console.log("_layout: No user logged in.");
+    } else { // No user
+      console.log("_layout (Navigation): No user logged in.");
       if (!isCurrentlyOnAuthFlowRoute) {
-        console.log("_layout: No user. Redirecting to /login.");
+        console.log("_layout (Navigation): No user. Redirecting to /login.");
         router.replace('/login');
       }
     }
-  }, [isAuthReady, initialUser, segments, router]);
+  }, [authProcessComplete, initialUser, segments, router, isNavigationReady.current]);
 
-  if (!isAuthReady) {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!isNavigationReady.current) {
+        // console.log("_layout: Marking Navigation Ready via setTimeout.");
+        isNavigationReady.current = true;
+        if (authProcessComplete) {
+          // console.log("_layout: Navigation ready, auth was complete. Forcing navigation check by re-setting initialUser.");
+          setInitialUser(currentUser => currentUser);
+        }
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [authProcessComplete]);
+
+  if (initialUser === undefined || !authProcessComplete) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#A06CD5" />
@@ -115,13 +162,6 @@ export default function RootLayout() {
       </View>
     );
   }
-
-  setTimeout(() => {
-    if (!isNavigationReady.current) {
-      // console.log("_layout: Marking Navigation Ready");
-      isNavigationReady.current = true;
-    }
-  }, 0);
 
   return (
     <Stack
@@ -132,7 +172,6 @@ export default function RootLayout() {
         headerShown: false,
       }}
     >
-
       <Stack.Screen name="login/index" options={{ gestureEnabled: false }} />
       <Stack.Screen name="register/index" />
       <Stack.Screen name="resetpassword/index" />

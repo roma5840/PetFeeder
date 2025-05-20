@@ -2,7 +2,7 @@
   "expo": {
     "name": "ASPetFeeder",
     "slug": "ASPetFeeder",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
@@ -51,7 +51,11 @@
     "owner": "roma5840",
     "updates": {
       "fallbackToCacheTimeout": 0,
-      "enabled": true
+      "enabled": true,
+      "url": "https://u.expo.dev/891ce889-5cab-48e2-870e-8be5acef7f2b"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
     }
   }
 }
