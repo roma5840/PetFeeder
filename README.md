@@ -51,9 +51,10 @@ npx expo start --dev-client (for development)
 *   **Verifying recovery code in login:** 5 attempts per 30 minutes
 *   **Regenerating recovery codes:** 3 requests per 1 hour
 
-**Note:** TOTP Rate Limits apply per user (not per IP)
-
-Exceeding these limits will result in temporary restrictions on the respective actions.
+### Notes
+*    TOTP Rate Limits apply per user (not per IP)
+*    Exceeding these limits will result in temporary restrictions on the respective actions.
+*    Reauthentication is needed for enabling 2FA, regenerating recovery codes, and disabling 2FA.
 
 ## Device Logging Key Features
 

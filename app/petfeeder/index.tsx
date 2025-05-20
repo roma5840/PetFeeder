@@ -159,6 +159,8 @@ export default function PetFeeder() {
   const [userTotpConfig, setUserTotpConfig] = useState(null); // to store fetched { enabled, encryptedSecret, iv, hashedRecoveryCodes, setupComplete }
   const [isTotpLoading, setIsTotpLoading] = useState(false);
   const [confirmSavedRecoveryCodes, setConfirmSavedRecoveryCodes] = useState(false);
+  const [showPreTotpReauthModal, setShowPreTotpReauthModal] = useState(false);
+  const [preTotpReauthPassword, setPreTotpReauthPassword] = useState('');
 
   const [showReauthModal, setShowReauthModal] = useState(false);
   const [reauthPassword, setReauthPassword] = useState('');
@@ -1161,16 +1163,24 @@ export default function PetFeeder() {
 
   // TOTP MANAGEMENT
   const openTotpManagement = () => {
-    setShowSettingsModal(false);
-    if (userTotpConfig?.enabled && userTotpConfig?.setupComplete) {
-        setTotpStep('manage');
-    } else {
-        setTotpStep('initial');
-    }
     setTotpVerificationCode('');
     setPlainRecoveryCodes([]);
     setConfirmSavedRecoveryCodes(false);
-    setShowTotpManagementModal(true);
+    setPreTotpReauthPassword('');
+
+    setShowSettingsModal(false);
+    // setShowAccountModal(false);
+
+    if (userTotpConfig?.enabled && userTotpConfig?.setupComplete) {
+        // setShowSettingsModal(false);
+        // setShowAccountModal(false);
+        setTotpStep('manage');
+        setShowTotpManagementModal(true);
+    } else {
+        // setShowSettingsModal(false);
+        setShowPreTotpReauthModal(true);
+    }
+
   };
 
   const handleStartTotpSetup = async () => {
@@ -1352,6 +1362,41 @@ export default function PetFeeder() {
           setIsReauthenticating(false);
           // setReauthAction(null);
       }
+  };
+
+  const handleReauthenticationFor2FASetup = async () => {
+    if (!preTotpReauthPassword) {
+        Alert.alert("Input Required", "Please enter your current password.");
+        return;
+    }
+    if (!user || !user.email) {
+        Alert.alert("Error", "User session error. Please log in again.");
+        return;
+    }
+    setIsTotpLoading(true);
+    Keyboard.dismiss();
+    try {
+        const credential = EmailAuthProvider.credential(user.email, preTotpReauthPassword);
+        await reauthenticateWithCredential(user, credential);
+
+        setShowPreTotpReauthModal(false);
+        setPreTotpReauthPassword('');
+
+        setTotpStep('initial');
+        setShowTotpManagementModal(true);
+
+    } catch (error) {
+        // console.error("Reauthentication for 2FA setup failed:", error);
+        let message = "Reauthentication failed. Please check your password.";
+        if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+            message = "Incorrect password.";
+        } else if (error.code === 'auth/too-many-requests') {
+            message = "Too many failed attempts. Please try again later.";
+        }
+        Alert.alert("Authentication Error", message);
+    } finally {
+        setIsTotpLoading(false);
+    }
   };
 
 
@@ -2320,7 +2365,19 @@ export default function PetFeeder() {
       <Modal visible={showReauthModal} transparent={true} animationType="fade" onRequestClose={() => !isReauthenticating && setShowReauthModal(false)}>
           <View style={styles.modalOverlay}>
               <View style={styles.modalContent}>
-                  <TouchableOpacity style={styles.modalBackButton} onPress={() => {setShowReauthModal(false); setReauthAction(null); setShowTotpManagementModal(true); setTotpStep('manage');}} disabled={isReauthenticating}>
+                  <TouchableOpacity style={styles.modalBackButton} 
+                    onPress={() => {
+                          setShowReauthModal(false);
+                          setReauthPassword('');
+                          setReauthAction(null);
+                          if (userTotpConfig?.enabled && userTotpConfig?.setupComplete) {
+                              setTotpStep('manage');
+                              setShowTotpManagementModal(true);
+                          } else {
+                              setShowAccountModal(true);
+                          }
+                      }}
+                      disabled={isReauthenticating}>
                       <Icon name="arrow-back-outline" size={24} color={themeColors.primary} />
                   </TouchableOpacity>
                   <Icon name="lock-closed-outline" size={30} color={themeColors.primary} style={{ marginBottom: 10 }} />
@@ -2355,6 +2412,7 @@ export default function PetFeeder() {
       transparent={true}
       animationType="fade"
       onRequestClose={() => {
+          if (isTotpLoading) return;
           if (totpStep === 'showRecovery') {
               Alert.alert(
                   "Action Required",
@@ -2364,10 +2422,16 @@ export default function PetFeeder() {
               return;
           }
 
-          if (!isTotpLoading) {
-              setShowTotpManagementModal(false);
-              setTotpStep('initial');
+          if (totpStep === 'manage') {
+            setShowTotpManagementModal(false);
+            setTotpStep('initial');
+            // setShowAccountModal(true);
+            return;
           }
+
+          setShowTotpManagementModal(false);
+          setTotpStep('initial');
+
       }}
       >
           <View style={styles.modalOverlay}>
@@ -2376,12 +2440,23 @@ export default function PetFeeder() {
                       <TouchableOpacity
                           style={styles.modalBackButton}
                           onPress={() => {
-                              setShowTotpManagementModal(false);
-                              setTotpStep('initial');
+                              if (totpStep === 'manage') {
+                                setShowTotpManagementModal(false);
+                                setTotpStep('initial');
+                                // setShowAccountModal(true);
+                              } else {
+                                setShowTotpManagementModal(false);
+                                setTotpStep('initial');
+                              }
+
                           }}
                           // disabled={isTotpLoading}
                       >
-                          <Icon name="close-outline" size={28} color={themeColors.primary} />
+                           <Icon
+                  name={totpStep === 'manage' ? "arrow-back-outline" : "close-outline"}
+                  size={totpStep === 'manage' ? 24 : 28}
+                  color={themeColors.primary}
+                />
                       </TouchableOpacity>
                   )}
                   <Icon name="shield-checkmark-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
@@ -2470,7 +2545,11 @@ export default function PetFeeder() {
                           </Text>
                           <TouchableOpacity
                               style={[styles.modalButton, {backgroundColor: themeColors.info, marginBottom: 10}]}
-                              onPress={() => promptReauthentication('regenerateRecovery')}
+                              onPress={() => {
+                                setShowTotpManagementModal(false);
+                                promptReauthentication('regenerateRecovery');
+                              }}
+
                           >
                               <Icon name="refresh-circle-outline" size={20} color="#fff" style={{marginRight: 8}}/>
                               <Text style={styles.modalButtonText}>Regenerate Recovery Codes</Text>
@@ -2480,7 +2559,10 @@ export default function PetFeeder() {
 
                           <TouchableOpacity
                               style={[styles.modalButton, styles.modalDeleteButton, {marginTop: 20}]}
-                              onPress={() => promptReauthentication('disableTotp')}
+                              onPress={() => {
+                                setShowTotpManagementModal(false);
+                                promptReauthentication('disableTotp');
+                              }}
                           >
                               <Icon name="shield-outline" size={20} color="#fff" style={{marginRight: 8}}/>
                               <Text style={styles.modalButtonText}>Disable 2FA</Text>
@@ -2491,6 +2573,72 @@ export default function PetFeeder() {
 
               </View>
           </View>
+      </Modal>
+
+      {/* Pre-TOTP Re-authentication Modal */}
+      <Modal
+        visible={showPreTotpReauthModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          if (!isTotpLoading) {
+            setShowPreTotpReauthModal(false);
+            setPreTotpReauthPassword('');
+            // setShowAccountModal(true);
+          }
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {!isTotpLoading && (
+              <TouchableOpacity
+                style={styles.modalBackButton}
+                onPress={() => {
+                  setShowPreTotpReauthModal(false);
+                  setPreTotpReauthPassword('');
+                  // setShowAccountModal(true);
+                }}
+              >
+                <Icon name="arrow-back-outline" size={24} color={themeColors.primary} />
+              </TouchableOpacity>
+            )}
+            <Icon name="shield-half-outline" size={30} color={themeColors.primary} style={{ marginBottom: 10, marginTop: isTotpLoading ? 0 : 20 }} />
+            <Text style={styles.modalTitle}>Confirm Your Identity</Text>
+            <Text style={styles.modalText}>
+              For your security, please enter your current password to begin setting up Two-Factor Authentication.
+            </Text>
+
+            {isTotpLoading ? (
+              <ActivityIndicator size="large" color={themeColors.primary} style={{ marginVertical: 20 }} />
+            ) : (
+              <>
+                <View style={styles.passwordInputContainer}>
+                  <TextInput
+                    style={styles.passwordInputText}
+                    placeholder="Current Password"
+                    placeholderTextColor={themeColors.textMuted}
+                    value={preTotpReauthPassword}
+                    onChangeText={setPreTotpReauthPassword}
+                    secureTextEntry={true}
+                    editable={!isTotpLoading}
+                    onSubmitEditing={handleReauthenticationFor2FASetup}
+                  />
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.modalButton,
+                    styles.modalPrimaryButton,
+                    (isTotpLoading || !preTotpReauthPassword) && styles.buttonDisabled,
+                  ]}
+                  onPress={handleReauthenticationFor2FASetup}
+                  disabled={isTotpLoading || !preTotpReauthPassword}
+                >
+                  <Text style={styles.modalButtonText}>Continue to 2FA Setup</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
       </Modal>
 
       {/* Device Management Modal */}
