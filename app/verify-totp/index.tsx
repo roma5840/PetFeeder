@@ -1,9 +1,8 @@
 // v13.1:
 // added login persistence
 
-// v13.2
-// fixed TOTP bypass security bug
-// fixed TOTP reverification on app restart bug
+// v13.5
+// Security Improvement - New more secure backend for TOTP
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -27,7 +26,7 @@ import { useAuthContext } from '../AuthContext';
 import Icon from "react-native-vector-icons/Ionicons";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const CLOUDFLARE_WORKER_TOTP_URL = "https://petfeeder-totp-auth.ryanoliver565.workers.dev";
+const CLOUDFLARE_WORKER_TOTP_URL = "https://totp-auth-worker.ryanoliver565.workers.dev";
 const SCREEN_TIMEOUT_DURATION_MS = 3 * 60 * 1000; // 3 minutes for inactivity
 
 export default function VerifyTotpScreen() {
@@ -118,7 +117,12 @@ export default function VerifyTotpScreen() {
     try {
       const snapshot = await get(userTotpRef);
       if (snapshot.exists()) {
-        setUserData(snapshot.val());
+        const data = snapshot.val();
+          setUserData({ 
+          enabled: data.enabled || false,
+          setupComplete: data.setupComplete || false 
+      });
+
       } else {
         Alert.alert("Error", "TOTP configuration not found. Please contact support or try re-login.");
         setTotpSessionVerified(false);
@@ -228,10 +232,6 @@ export default function VerifyTotpScreen() {
       Alert.alert("Input Error", "Please enter your complete 6-digit TOTP code.");
       return;
     }
-    if (!userData || !userData.encryptedSecret || !userData.iv) {
-      Alert.alert("Error", "User TOTP data is incomplete. Please re-login or setup TOTP again.");
-      return;
-    }
 
     const currentUser = auth.currentUser;
     if (!currentUser) {
@@ -258,9 +258,7 @@ export default function VerifyTotpScreen() {
               'Authorization': `Bearer ${idToken}`
           },
           body: JSON.stringify({
-              encryptedSecret: userData.encryptedSecret,
-              iv: userData.iv,
-              token: currentTotpCode,
+              token: currentTotpCode
           }),
       });
       const result = await response.json();
@@ -307,10 +305,6 @@ export default function VerifyTotpScreen() {
         Alert.alert("Input Error", "Recovery code must be 11 characters long.");
         return;
     }
-    if (!userData || !userData.hashedRecoveryCodes) {
-        Alert.alert("Error", "User recovery data is incomplete.");
-        return;
-    }
 
     const currentUser = auth.currentUser;
     if (!currentUser) {
@@ -333,17 +327,12 @@ export default function VerifyTotpScreen() {
                 'Authorization': `Bearer ${idToken}`
             },
             body: JSON.stringify({
-                recoveryCode: recoveryCode.trim(),
-                storedHashedCodes: userData.hashedRecoveryCodes || [],
+                recoveryCode: recoveryCode.trim()
             }),
         });
         const result = await response.json();
         if (response.ok && result.verified) {
             // Alert.alert("Success", "Recovery code verified!");
-            const db = getDatabase();
-            const userTotpRef = ref(db, `users/${userId}/totp`);
-            const updatedHashedCodes = (userData.hashedRecoveryCodes || []).filter(hash => hash !== result.usedCodeHash);
-            await update(userTotpRef, { hashedRecoveryCodes: updatedHashedCodes });
             if (timeoutIdRef.current) clearTimeout(timeoutIdRef.current);
             setTotpSessionVerified(true);
 
@@ -477,6 +466,7 @@ export default function VerifyTotpScreen() {
                     setRecoveryCode(text);
                   }}
                   autoCorrect={false}
+                  autoCapitalize="characters"
                   autoComplete="off"
                   autoFocus={true}
                 />

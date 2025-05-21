@@ -1,7 +1,24 @@
 ## Current Version
 
-### v13.2 - Security Bug Fixes in Verify-TOTP
-*   Bug fix in verify-totp where users could potentially bypass due to bugs in login persistence.
+### v13.5 - Major TOTP Backend Update
+1.  **Per-User Encrypted TOTP Secrets:**
+    *   Each user's core TOTP secret (used to generate 2FA codes) is now individually encrypted at rest within their dedicated Cloudflare Durable Object instance (Old version had a specified "Master Key").
+    *   A unique AES-GCM encryption key is generated and managed per-user within the Durable Object. This key is used to encrypt and decrypt that specific user's TOTP secret.
+
+2.  **JWT Verification with 'jose':**
+    *   User authentication (via Firebase ID Tokens) is now handled using 'jose' library.
+
+3.  **Secure Handling of Recovery Codes:**
+    *   While users receive plain-text recovery codes for their own safekeeping, the backend only stores cryptographically secure hashes (SHA-256) of these codes.
+    *   When a recovery code is used, the provided plain code is hashed and then compared against the stored hashes within the user's Durable Object.
+    *   The original recovery codes cannot be reconstructed from server-side storage. This protects recovery codes even if the backend data store were to be exposed.
+
+4. **Other Notes:**
+    *   All user-specific TOTP state (encrypted secret, initialization vector, hashed recovery codes, rate limit counters) is managed within a Durable Object instance unique to each user.
+    *   Endpoint-specific rate limits are enforced per user via their Durable Object.
+
+#### Previous Versions
+*   **v13.2:** Bug fix in verify-totp where users could potentially bypass due to bugs in login persistence.
 *   **v13.1:** Added login persistence: Users remain logged in even after closing the app or removing it from multitasking.
 
 #### General Changes in v13:
@@ -39,28 +56,30 @@ npx expo start --dev-client (for development)
 *   Preview profile is how it would look like if deployed for production (apk file)
 *   Development profile is just like doing 'npx expo start' and scanning the QR using expo go app in android (which means hot reloading is supported). Use it if there are custom native modules (e.g. planned feature of react-native-ble-plx for BLE for the app to ESP32)
 
-## TOTP (Backend) Key Features
-*   **Firebase Authentication:**
-    *   All sensitive actions require users to be authenticated via Firebase ID Tokens (JWTs).
-    *   Tokens are validated against Google's public keys.
-*   **Secure TOTP Secret Handling:**
-    *   TOTP secrets are encrypted (AES-GCM) by the backend before being sent to the client for storage (storage is through Firebase Realtime Database).
-    *   The client sends the encrypted secret back for verification, where it's decrypted on the server.
-*   **Hashed Recovery Codes:**
-    *   Recovery codes are hashed using SHA-256 before being stored by the client. This reduces the risk of plain-text exposure if the client's storage is compromised.
+## TOTP Backend Security Features
+
+### Summary
+
+*   **Authentication:** Firebase JWT via jose
+*   **Authorization:** User can only affect their own Durable Object
+*   **Data at Rest Protection:** AES-GCM for TOTP secret in Durable Object
+*   **Data in Transit Protection:** HTTPS (Cloudflare Workers)
+*   **Brute-Force Protection:** Rate limiting on critical actions
+*   **Secret Management:** TOTP secret encrypted, recovery codes hashed & consumed
+*   **Encryption:** Strong crypto algorithms (crypto.subtle) and secure random number generation (crypto.getRandomValues)
+*   **Input Validation**
 
 ### TOTP Rate Limits
 
 *   **Generating TOTP:** 5 requests per 10 minutes
 *   **Verifying code and enabling TOTP:** 5 attempts per 15 minutes
 *   **Verifying code in login:** 10 attempts per 10 minutes
-*   **Verifying recovery code in login:** 5 attempts per 30 minutes
-*   **Regenerating recovery codes:** 3 requests per 1 hour
+*   **Verifying recovery code in login:** 5 attempts per 15 minutes
+*   **Regenerating recovery codes:** 5 requests per 1 hour
 
 ### Notes
-*    TOTP Rate Limits apply per user (not per IP)
-*    Exceeding these limits will result in temporary restrictions on the respective actions.
-*    Reauthentication is needed for enabling 2FA, regenerating recovery codes, and disabling 2FA.
+*    As explained, TOTP Rate Limits apply per user (not per IP)
+*    Reauthentication is needed for enabling 2FA, regenerating recovery codes, and disabling 2FA
 
 ## Device Logging Key Features
 

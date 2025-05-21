@@ -1,9 +1,8 @@
 // v13
 // added device logging
 
-// v13.2
-// fixed TOTP bypass security bug
-// fixed TOTP reverification on app restart bug
+// v13.5
+// Security Improvement - New more secure backend for TOTP
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
@@ -178,7 +177,7 @@ export default function PetFeeder() {
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
 
 
-  const CLOUDFLARE_WORKER_TOTP_URL = "https://petfeeder-totp-auth.ryanoliver565.workers.dev"; 
+  const CLOUDFLARE_WORKER_TOTP_URL = "https://totp-auth-worker.ryanoliver565.workers.dev"; 
   const CLOUDFLARE_WORKER_DEVICES_URL = "https://petfeeder-device-manager-worker.ryanoliver565.workers.dev"; 
 
   const [nextScheduledFeedInfo, setNextScheduledFeedInfo] = useState({ time: "N/A", amount: ""});
@@ -469,10 +468,15 @@ export default function PetFeeder() {
             try {
                 const snapshot = await get(totpRef);
                 if (snapshot.exists()) {
-                    setUserTotpConfig(snapshot.val());
+                    const data = snapshot.val();
+                    setUserTotpConfig({
+                        enabled: data.enabled || false,
+                        setupComplete: data.setupComplete || false,
+                    });
                 } else {
                     setUserTotpConfig({ enabled: false, setupComplete: false });
                 }
+
             } catch (error) {
                 // console.error("Error fetching TOTP config:", error);
                 setUserTotpConfig({ enabled: false, setupComplete: false });
@@ -1198,7 +1202,7 @@ export default function PetFeeder() {
       setIsTotpLoading(true);
       try {
           const idToken = await currentUser.getIdToken();
-          const response = await fetch(`${CLOUDFLARE_WORKER_TOTP_URL}/totp/generate?email=${encodeURIComponent(currentUser.email)}`, {
+          const response = await fetch(`${CLOUDFLARE_WORKER_TOTP_URL}/totp/generate-details?email=${encodeURIComponent(currentUser.email)}`, {
               method: 'GET',
               headers: {
                   'Authorization': `Bearer ${idToken}`
@@ -1245,15 +1249,13 @@ export default function PetFeeder() {
           const data = await response.json();
           if (response.ok) {
               const db = getDatabase();
-              const totpDataToSave = {
+              const totpDataToSaveToDb = {
                   enabled: true,
                   setupComplete: true,
-                  encryptedSecret: data.encryptedSecret,
-                  iv: data.iv,
-                  hashedRecoveryCodes: data.hashedRecoveryCodes,
               };
-              await set(ref(db, `users/${user.uid}/totp`), totpDataToSave);
-              setUserTotpConfig(totpDataToSave);
+              await set(ref(db, `users/${user.uid}/totp`), totpDataToSaveToDb);
+
+              setUserTotpConfig(totpDataToSaveToDb);
               setPlainRecoveryCodes(data.recoveryCodes);
               setTotpStep('showRecovery');
               // Alert.alert("Success", "2FA enabled! Please save your recovery codes.");
@@ -1407,43 +1409,88 @@ export default function PetFeeder() {
 
 
   const executeDisableTotp = async () => {
-      if (!user) return;
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+          Alert.alert("Error", "User session expired. Please log in again.");
+          setIsTotpLoading(false);
+          setShowTotpManagementModal(false);
+          setReauthAction(null);
+          return;
+      }
+
       Alert.alert(
           "Confirm Disable 2FA",
           "Are you sure you want to disable Two-Factor Authentication? Your account will be less secure.",
           [
-              { text: "Cancel", style: "cancel", onPress: () => { setShowTotpManagementModal(true); setTotpStep('manage');} },
+              {
+                  text: "Cancel",
+                  style: "cancel",
+                  onPress: () => {
+                      setShowTotpManagementModal(true);
+                      setTotpStep('manage');
+                      setIsTotpLoading(false);
+                      setReauthAction(null);
+                  }
+              },
               {
                   text: "Disable 2FA",
                   style: "destructive",
                   onPress: async () => {
-                     if (!user) {
+                      const freshCurrentUser = auth.currentUser;
+                      if (!freshCurrentUser) {
                           Alert.alert("Error", "User session expired. Please log in again.");
                           setIsTotpLoading(false);
                           setShowTotpManagementModal(false);
                           setReauthAction(null);
                           return;
                       }
+
                       setIsTotpLoading(true);
                       try {
+                          const idToken = await freshCurrentUser.getIdToken();
+                          const workerResponse = await fetch(`${CLOUDFLARE_WORKER_TOTP_URL}/totp/disable`, {
+                              method: 'POST',
+                              headers: {
+                                  'Content-Type': 'application/json',
+                                  'Authorization': `Bearer ${idToken}`
+                              },
+                              body: JSON.stringify({})
+                          });
+
+                          const workerData = await workerResponse.json();
+
+                          if (!workerResponse.ok || !workerData.success) {
+                              // console.error("Worker error disabling TOTP:", workerData.error);
+                              Alert.alert("Error Disabling 2FA", `Failed to disable 2FA on the server: ${workerData.error || 'Unknown server error'}. Please try again.`);
+                              setIsTotpLoading(false);
+                              setShowTotpManagementModal(true);
+                              setTotpStep('manage');
+                              setReauthAction(null);
+                              return;
+                          }
+
                           const db = getDatabase();
-                          await remove(ref(db, `users/${user.uid}/totp`));
+                          await remove(ref(db, `users/${freshCurrentUser.uid}/totp`));
+
                           setUserTotpConfig({ enabled: false, setupComplete: false });
                           setShowTotpManagementModal(false);
                           setTotpStep('initial');
                           Alert.alert("Success", "Two-Factor Authentication has been disabled.");
+
                       } catch (error) {
                           // console.error("Error disabling TOTP:", error);
-                          Alert.alert("Error", "Failed to disable 2FA.");
+                          Alert.alert("Error", `Failed to disable 2FA. An unexpected error occurred: ${error.message}`);
                       } finally {
                           setIsTotpLoading(false);
                           setReauthAction(null);
                       }
                   },
               },
-          ]
+          ],
+          { cancelable: false }
       );
   };
+
 
   const executeRegenerateRecoveryCodes = async () => {
       const currentUser = auth.currentUser;
@@ -1471,11 +1518,6 @@ export default function PetFeeder() {
 
           const data = await response.json();
           if (response.ok) {
-              const db = getDatabase();
-              await update(ref(db, `users/${user.uid}/totp`), {
-                  hashedRecoveryCodes: data.hashedRecoveryCodes,
-              });
-              setUserTotpConfig(prev => ({...prev, hashedRecoveryCodes: data.hashedRecoveryCodes}));
               setPlainRecoveryCodes(data.recoveryCodes);
               setConfirmSavedRecoveryCodes(false);
               setTotpStep('showRecovery');
