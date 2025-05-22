@@ -176,6 +176,10 @@ export default function PetFeeder() {
   const [showDeviceManagementModal, setShowDeviceManagementModal] = useState(false);
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
 
+  const [showDeleteAccountReauthModal, setShowDeleteAccountReauthModal] = useState(false);
+  const [deleteAccountReauthPassword, setDeleteAccountReauthPassword] = useState('');
+  const [isReauthenticatingForDelete, setIsReauthenticatingForDelete] = useState(false);
+
 
   const CLOUDFLARE_WORKER_TOTP_URL = "https://totp-auth-worker.ryanoliver565.workers.dev"; 
   const CLOUDFLARE_WORKER_DEVICES_URL = "https://petfeeder-device-manager-worker.ryanoliver565.workers.dev"; 
@@ -937,24 +941,102 @@ export default function PetFeeder() {
     const userToDelete = auth.currentUser;
     if (!userToDelete) return;
 
+    setShowAccountModal(false);
+    setDeleteAccountReauthPassword('');
+    setShowDeleteAccountReauthModal(true);
+
+  };
+
+  const handleReauthenticateForDeleteAccount = async () => {
+    if (!deleteAccountReauthPassword) {
+        Alert.alert("Input Required", "Please enter your current password.");
+        return;
+    }
+    const user = auth.currentUser;
+    if (!user || !user.email) {
+        Alert.alert("Error", "User session error. Please log in again.");
+        return;
+    }
+    setIsReauthenticatingForDelete(true);
+    Keyboard.dismiss();
+    try {
+        const credential = EmailAuthProvider.credential(user.email, deleteAccountReauthPassword);
+        await reauthenticateWithCredential(user, credential);
+
+        setShowDeleteAccountReauthModal(false);
+        setDeleteAccountReauthPassword('');
+        proceedWithAccountDeletion();
+
+    } catch (error) {
+        // console.error("Reauthentication for delete account failed:", error);
+        let message = "Reauthentication failed. Please check your password.";
+        if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+            message = "Incorrect password.";
+        } else if (error.code === 'auth/too-many-requests') {
+            message = "Too many failed attempts. Please try again later.";
+        }
+        Alert.alert("Authentication Error", message);
+    } finally {
+        setIsReauthenticatingForDelete(false);
+    }
+  };
+
+  const proceedWithAccountDeletion = () => {
+    const userToDelete = auth.currentUser;
+    if (!userToDelete) {
+        Alert.alert("Error", "User session lost. Please try again.");
+        return;
+    }
+
     Alert.alert(
       "Confirm Delete Account",
-      "This will permanently delete your account and all associated data. This action cannot be undone.",
+      "This will permanently delete your account and all associated data. This action CANNOT be undone. Are you absolutely sure?",
       [
-        { text: "Cancel", style: "cancel" },
+        {
+          text: "Cancel",
+          style: "cancel",
+          onPress: () => {
+            setShowAccountModal(true);
+          }
+        },
         {
           text: "Delete Permanently",
           style: "destructive",
           onPress: async () => {
             setIsSaving(true);
             try {
+              if (userTotpConfig?.enabled && userTotpConfig?.setupComplete) {
+                console.log("[Account Deletion] TOTP is enabled, attempting to disable it on the server.");
+                try {
+                  const idToken = await userToDelete.getIdToken();
+                  const workerResponse = await fetch(`${CLOUDFLARE_WORKER_TOTP_URL}/totp/disable`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${idToken}`
+                    },
+                    body: JSON.stringify({})
+                  });
+                  const workerData = await workerResponse.json();
+                  if (!workerResponse.ok || !workerData.success) {
+                    console.warn(`[Account Deletion] Failed to disable TOTP on the server: ${workerData.error || 'Unknown server error'}. Proceeding with account deletion.`);
+                  } else {
+                    console.log("[Account Deletion] TOTP successfully disabled on the server.");
+                  }
+                } catch (totpDisableError: any) {
+                  console.warn(`[Account Deletion] Error calling TOTP disable endpoint: ${totpDisableError.message}. Proceeding with account deletion.`);
+                }
+              }
+
               const userRef = ref(db, `users/${userToDelete.uid}`);
               await remove(userRef);
+              await _callDeviceApi('/devices/logout/all-others', 'POST', userToDelete, { currentDeviceId });
               await deleteUser(userToDelete);
+              Alert.alert("Account Deleted", "Your account has been successfully deleted.");
             } catch (error) {
               let errorMessage = `Failed to delete account. Please try again.`;
                if (error.code === 'auth/requires-recent-login') {
-                  errorMessage = 'This operation requires a recent login. Please log out and log back in to delete your account.';
+                  errorMessage = 'This operation requires a very recent login. Please log out and log back in to delete your account.';
               } else if (error.message) {
                   errorMessage = `Failed to delete account: ${error.message}`;
               }
@@ -967,6 +1049,7 @@ export default function PetFeeder() {
       ], { cancelable: false }
     );
   };
+
 
   const handleChangePassword = async () => {
     const user = auth.currentUser;
@@ -2119,10 +2202,10 @@ export default function PetFeeder() {
       </Modal>
 
       {/* Account Settings Modal */}
-      <Modal visible={showAccountModal} transparent={true} animationType="fade" onRequestClose={() => !isSaving && setShowAccountModal(false)}>
+      <Modal visible={showAccountModal} transparent={true} animationType="fade" onRequestClose={() => !isSaving && !isReauthenticatingForDelete && setShowAccountModal(false)}>
         <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-                <TouchableOpacity style={styles.modalBackButton} onPress={() => { setShowAccountModal(false); setShowSettingsModal(true); }} disabled={isSaving}>
+                <TouchableOpacity style={styles.modalBackButton} onPress={() => { setShowAccountModal(false); setShowSettingsModal(true); }} disabled={isSaving || isReauthenticatingForDelete}>
                     <Icon name="arrow-back-outline" size={24} color={themeColors.primary} />
                 </TouchableOpacity>
                 <Icon name="person-circle-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
@@ -2160,14 +2243,82 @@ export default function PetFeeder() {
 
                 <View style={styles.modalSection}>
                     <Text style={styles.modalSectionHeader}>Delete Account</Text>
-                    <TouchableOpacity style={[styles.modalButton, styles.modalDeleteButton, isSaving && styles.buttonDisabled]} onPress={handleDeleteAccount} disabled={isSaving}>
+                    <TouchableOpacity style={[styles.modalButton, styles.modalDeleteButton, (isSaving || isReauthenticatingForDelete) && styles.buttonDisabled]} onPress={handleDeleteAccount} disabled={isSaving}>
                         <Icon name="trash-bin-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
                         <Text style={styles.modalButtonText}>Delete Account Permanently</Text>
                     </TouchableOpacity>
                     <Text style={styles.modalNoteSmall}>This action is irreversible.</Text>
                 </View>
-                {isSaving && <ActivityIndicator size="small" color={themeColors.primary} style={{ marginVertical: 15 }}/>}
+                {(isSaving || isReauthenticatingForDelete) && <ActivityIndicator size="small" color={themeColors.primary} style={{ marginVertical: 15 }}/>}
             </View>
+        </View>
+      </Modal>
+
+      {/* Reauthentication Modal for Account Deletion */}
+      <Modal
+        visible={showDeleteAccountReauthModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          if (!isReauthenticatingForDelete) {
+            setShowDeleteAccountReauthModal(false);
+            setDeleteAccountReauthPassword('');
+            setShowAccountModal(true);
+          }
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {!isReauthenticatingForDelete && (
+              <TouchableOpacity
+                style={styles.modalBackButton}
+                onPress={() => {
+                  setShowDeleteAccountReauthModal(false);
+                  setDeleteAccountReauthPassword('');
+                  setShowAccountModal(true);
+                }}
+                disabled={isReauthenticatingForDelete}
+              >
+                <Icon name="arrow-back-outline" size={24} color={themeColors.primary} />
+              </TouchableOpacity>
+            )}
+            <Icon name="lock-closed-outline" size={30} color={themeColors.primary} style={{ marginBottom: 10 }} />
+            <Text style={styles.modalTitle}>Account Deletion</Text>
+            <Text style={styles.modalText}>
+              For your security, please enter your current password to proceed with deleting your account.
+            </Text>
+
+            {isReauthenticatingForDelete ? (
+              <ActivityIndicator size="large" color={themeColors.primary} style={{ marginVertical: 20 }} />
+            ) : (
+              <>
+                <View style={styles.passwordInputContainer}>
+                  <TextInput
+                    style={styles.passwordInputText}
+                    placeholder="Current Password"
+                    placeholderTextColor={themeColors.textMuted}
+                    value={deleteAccountReauthPassword}
+                    onChangeText={setDeleteAccountReauthPassword}
+                    secureTextEntry={true}
+                    editable={!isReauthenticatingForDelete}
+                    onSubmitEditing={handleReauthenticateForDeleteAccount}
+                  />
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.modalButton,
+                    styles.modalPrimaryButton,
+                    // styles.modalDeleteButton,
+                    (isReauthenticatingForDelete || !deleteAccountReauthPassword) && styles.buttonDisabled,
+                  ]}
+                  onPress={handleReauthenticateForDeleteAccount}
+                  disabled={isReauthenticatingForDelete || !deleteAccountReauthPassword}
+                >
+                  <Text style={styles.modalButtonText}>Continue</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
         </View>
       </Modal>
 
@@ -2656,7 +2807,7 @@ export default function PetFeeder() {
                 <Icon name="arrow-back-outline" size={24} color={themeColors.primary} />
               </TouchableOpacity>
             )}
-            <Icon name="shield-half-outline" size={30} color={themeColors.primary} style={{ marginBottom: 10, marginTop: isTotpLoading ? 0 : 20 }} />
+            <Icon name="lock-closed-outline" size={30} color={themeColors.primary} style={{ marginBottom: 10 }} />
             <Text style={styles.modalTitle}>Confirm Your Identity</Text>
             <Text style={styles.modalText}>
               For your security, please enter your current password to begin setting up Two-Factor Authentication.
