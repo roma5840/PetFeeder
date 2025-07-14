@@ -2,7 +2,7 @@
   "expo": {
     "name": "ASPetFeeder",
     "slug": "ASPetFeeder",
-    "version": "1.13.5",
+    "version": "1.14.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
@@ -17,7 +17,10 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.roma5840.aspetfeeder",
-      "versionCode": 1
+      "versionCode": 1,
+      "permissions": [
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro",

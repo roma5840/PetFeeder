@@ -4,6 +4,9 @@
 // v13.5
 // Security Improvement - New more secure backend for TOTP
 
+// v14
+// add connect feeder modal
+
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
@@ -55,6 +58,7 @@ import QRCode from 'react-native-qrcode-svg';
 import * as Application from 'expo-application';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthContext } from '../AuthContext'; 
+import ConnectFeederModal from '../components/ConnectFeederModal'; 
 
 const timeToMinutes = (timeStr) => {
     if (!timeStr || typeof timeStr !== 'string') return Infinity;
@@ -160,7 +164,7 @@ export default function PetFeeder() {
   const [totpQrUri, setTotpQrUri] = useState('');
   const [totpVerificationCode, setTotpVerificationCode] = useState('');
   const [plainRecoveryCodes, setPlainRecoveryCodes] = useState([]);
-  const [userTotpConfig, setUserTotpConfig] = useState(null); // to store fetched { enabled, encryptedSecret, iv, hashedRecoveryCodes, setupComplete }
+  const [userTotpConfig, setUserTotpConfig] = useState(null);
   const [isTotpLoading, setIsTotpLoading] = useState(false);
   const [confirmSavedRecoveryCodes, setConfirmSavedRecoveryCodes] = useState(false);
   const [showPreTotpReauthModal, setShowPreTotpReauthModal] = useState(false);
@@ -180,6 +184,7 @@ export default function PetFeeder() {
   const [deleteAccountReauthPassword, setDeleteAccountReauthPassword] = useState('');
   const [isReauthenticatingForDelete, setIsReauthenticatingForDelete] = useState(false);
 
+  const [showConnectFeederModal, setShowConnectFeederModal] = useState(false);
 
   const CLOUDFLARE_WORKER_TOTP_URL = "https://totp-auth-worker.ryanoliver565.workers.dev"; 
   const CLOUDFLARE_WORKER_DEVICES_URL = "https://petfeeder-device-manager-worker.ryanoliver565.workers.dev"; 
@@ -2189,6 +2194,12 @@ export default function PetFeeder() {
             </TouchableOpacity>
             */}
 
+            <TouchableOpacity style={styles.settingsMenuItem} onPress={() => { setShowSettingsModal(false); setShowConnectFeederModal(true); }} disabled={isSaving}>
+              <Icon name="wifi-outline" size={22} style={styles.settingsMenuItemIcon} />
+              <Text style={styles.settingsMenuItemText}>Connect New Feeder</Text>
+              <Icon name="chevron-forward-outline" size={22} style={styles.settingsMenuChevron} />
+            </TouchableOpacity>
+
             <TouchableOpacity style={styles.settingsMenuItem} onPress={handleLogout} disabled={isSaving}>
               <Icon name="log-out-outline" size={22} style={[styles.settingsMenuItemIcon, {color: themeColors.textPrimary}]} />
               <Text style={[styles.settingsMenuItemText, {color: themeColors.textPrimary}]}>Logout</Text>
@@ -2943,6 +2954,9 @@ export default function PetFeeder() {
         </View>
       </Modal>
 
+      <Modal visible={showConnectFeederModal} transparent={true} animationType="fade" onRequestClose={() => setShowConnectFeederModal(false)}>
+          <ConnectFeederModal onClose={() => setShowConnectFeederModal(false)} />
+      </Modal>
 
 
     </ScrollView>
