@@ -186,6 +186,8 @@ export default function PetFeeder() {
 
   const [showConnectFeederModal, setShowConnectFeederModal] = useState(false);
 
+  const [showTroubleshootModal, setShowTroubleshootModal] = useState(false);
+
   const CLOUDFLARE_WORKER_TOTP_URL = "https://totp-auth-worker.ryanoliver565.workers.dev"; 
   const CLOUDFLARE_WORKER_DEVICES_URL = "https://petfeeder-device-manager-worker.ryanoliver565.workers.dev"; 
 
@@ -1909,9 +1911,16 @@ export default function PetFeeder() {
         <View style={styles.summaryRow}>
             <View style={styles.summaryItem}>
                 <Icon name={feederOnline ? "checkmark-circle" : "alert-circle"} size={28} color={feederOnline ? themeColors.success : themeColors.danger} />
-                <Text style={[styles.summaryText, { color: feederOnline ? themeColors.success : themeColors.danger }]}>
-                    {feederOnline ? 'Feeder Online' : 'Feeder Offline'}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center'}}>
+                    <Text style={[styles.summaryText, { color: feederOnline ? themeColors.success : themeColors.danger }]}>
+                        {feederOnline ? 'Feeder Online' : 'Feeder Offline'}
+                    </Text>
+                    {!feederOnline && (
+                        <TouchableOpacity onPress={() => setShowTroubleshootModal(true)} style={styles.troubleshootButton}>
+                            <Icon name="help-circle-outline" size={18} color={themeColors.textOnPrimary} />
+                        </TouchableOpacity>
+                    )}
+                </View>
             </View>
             <View style={styles.summaryItem}>
                 <Icon name="cube" size={28} color={currentFoodLevel < (hopperCapacity * 0.1) ? themeColors.warning : themeColors.accent} />
@@ -2958,6 +2967,36 @@ export default function PetFeeder() {
           <ConnectFeederModal onClose={() => setShowConnectFeederModal(false)} />
       </Modal>
 
+      {/* Troubleshooting Modal */}
+      <Modal visible={showTroubleshootModal} transparent={true} animationType="fade" onRequestClose={() => setShowTroubleshootModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Icon name="build-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
+            <Text style={styles.modalTitle}>Feeder Offline</Text>
+            <Text style={styles.modalText}>Please check the following:</Text>
+            <View style={styles.troubleshootList}>
+                <Text style={styles.troubleshootItem}>1. Is the feeder plugged in and powered on?</Text>
+                <Text style={styles.troubleshootItem}>2. Is your home WiFi network working correctly?</Text>
+                <Text style={[styles.troubleshootItem, {fontWeight: 'bold'}]}>3. Did you recently change your account password?</Text>
+            </View>
+            <Text style={styles.modalNote}>If you changed your password or WiFi, you must re-connect the feeder to update its credentials.</Text>
+            <TouchableOpacity 
+              style={[styles.modalButton, styles.modalPrimaryButton]} 
+              onPress={() => {
+                setShowTroubleshootModal(false);
+                setShowConnectFeederModal(true);
+              }}
+            >
+              <Icon name="wifi-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+              <Text style={styles.modalButtonText}>Re-Connect Feeder</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.modalButton, styles.modalCloseButton]} onPress={() => setShowTroubleshootModal(false)}>
+              <Text style={styles.modalButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
 
     </ScrollView>
   );
@@ -3727,6 +3766,24 @@ const styles = StyleSheet.create({
     color: themeColors.textMuted,
     paddingRight: 8,
   },
+  troubleshootButton: {
+    marginLeft: 8,
+    padding: 5,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderRadius: 15,
+  },
+  troubleshootList: {
+    alignSelf: 'flex-start',
+    width: '100%',
+    marginVertical: 15,
+  },
+  troubleshootItem: {
+    fontSize: 15,
+    color: themeColors.textSecondary,
+    marginBottom: 10,
+    lineHeight: 22,
+  },
+
 
 
 });
