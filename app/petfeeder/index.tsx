@@ -353,11 +353,14 @@ export default function PetFeeder() {
                 const amountForDisplay = lastFeedAmountStr || 'N/A';
                 if (!isNaN(date.getTime())) {
                     setLastFeedInfo(`${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${amountForDisplay}g)`);
-                    get(ref(db, foodConfigRefPath)).then(foodConfigSnapshot => {
-                        if (foodConfigSnapshot.exists()) {
-                            const currentActualFoodLevel = foodConfigSnapshot.val().currentFoodLevel;
-                            if (lastProcessedFeedTimestampRef.current !== lastFeedTimestamp) {
+                    
+                    // Only process food deduction if the timestamp is new
+                    if (lastProcessedFeedTimestampRef.current !== lastFeedTimestamp) {
+                        get(ref(db, foodConfigRefPath)).then(foodConfigSnapshot => {
+                            if (foodConfigSnapshot.exists()) {
+                                const currentActualFoodLevel = foodConfigSnapshot.val().currentFoodLevel;
                                 const amountDispensed = parseFloat(lastFeedAmountStr);
+                                
                                 if (!isNaN(amountDispensed) && amountDispensed > 0) {
                                     const newCalculatedLevel = Math.max(0, currentActualFoodLevel - amountDispensed);
                                     console.log(`Food DEDUCTION: DB foodLevel: ${currentActualFoodLevel}g, Dispensed by ESP: ${amountDispensed}g, New calculated: ${newCalculatedLevel}g. ESP Timestamp: ${lastFeedTimestamp}`);
@@ -368,14 +371,15 @@ export default function PetFeeder() {
                                             lastProcessedFeedTimestampRef.current = lastFeedTimestamp;
                                         })
                                         .catch(error => {
-                                            // console.error("CRITICAL: Failed to update food level in Firebase after deduction:", error);
+                                            console.error("CRITICAL: Failed to update food level in Firebase after deduction:", error);
                                             Alert.alert("Food Level Sync Error", "Failed to update food level after feed. It may be inaccurate.");
                                         });
+                                } else {
+                                    lastProcessedFeedTimestampRef.current = lastFeedTimestamp;
                                 }
                             }
-                        }
-                    });
-
+                        });
+                    }
                 } else { setLastFeedInfo("Invalid Date"); console.warn("Invalid lastFeedTimestamp:", statusData.lastFeedTimestamp); }
             } else { setLastFeedInfo("N/A"); }
 
