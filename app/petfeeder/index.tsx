@@ -210,6 +210,7 @@ export default function PetFeeder() {
   const user = auth.currentUser;
 
   const netInfo = useNetInfo();
+  const hasLoadedOnce = useRef(false);
 
   interface DeviceSession {
     deviceId: string;
@@ -271,7 +272,9 @@ export default function PetFeeder() {
     }
 
     console.log(`%cuseEffect: RUNNING for user ${user.uid}. TOTP Session Verified: ${isTotpSessionVerified}`, 'color: blue; font-weight: bold;');
-    setIsLoading(true);
+    if (!hasLoadedOnce.current) {
+      setIsLoading(true);
+    }
     setIsLoadingHistory(true);
     setIsLoadingNotes(true);
 
@@ -299,6 +302,7 @@ export default function PetFeeder() {
         if (initialBaseDataFetched && statusListenerReady && schedulesListenerReady && historyListenerReady && foodConfigListenerReady && notesListenerReady) {
             console.log("%cuseEffect: All data and listeners ready, setting loading false.", 'color: green; font-weight: bold;');
             setIsLoading(false);
+            hasLoadedOnce.current = true;
         }
     };
 
