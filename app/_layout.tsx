@@ -1,10 +1,3 @@
-// v13.1:
-// added login persistence
-
-// v13.2
-// fixed TOTP bypass security bug
-// fixed TOTP reverification on app restart bug
-
 import { Stack, useRouter, useSegments } from "expo-router";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { useEffect, useState, useRef } from "react";
@@ -13,6 +6,7 @@ import { ActivityIndicator, View, StyleSheet, Text } from "react-native";
 import { getDatabase, ref, get } from "firebase/database";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthProvider, useAuthContext } from './AuthContext';
+import { useNetInfo } from "@react-native-community/netinfo";
 
 const USER_SESSION_KEY = 'petfeederUserSession';
 const TOTP_VERIFIED_SESSION_KEY_PREFIX = 'totpVerifiedForUser_';
@@ -33,6 +27,8 @@ function RootLayout() {
   const [authProcessComplete, setAuthProcessComplete] = useState(false);
   const { isTotpSessionVerified, setTotpSessionVerified } = useAuthContext();
   const lastActiveUidRef = useRef<string | null>(null);
+
+  const netInfo = useNetInfo();
 
   const authFlowRoutes = ["login", "register", "resetpassword", "verify-totp"];
   const setupRoutes = ["petname", "confirm"];
@@ -89,6 +85,11 @@ function RootLayout() {
   useEffect(() => {
     if (!authProcessComplete || !isRouterReady || initialUser === undefined) {
       return;
+    }
+
+    if (netInfo.isConnected === false) {
+        console.log("_layout: No internet connection. Halting navigation logic to prevent hangs during setup.");
+        return;
     }
 
     const userFromState = initialUser;
@@ -191,14 +192,12 @@ function RootLayout() {
           router.replace('/login');
         }
       }
-    } else { // No user
-      // console.log("_layout (Navigation): No user logged in (initialUser is null).");
+    } else {
       if (!isCurrentlyOnAuthFlowRoute) {
-        // console.log("_layout (Navigation): No user & not on auth route. Redirecting to /login.");
         router.replace('/login');
       }
     }
-  }, [authProcessComplete, initialUser, segments, router, isRouterReady, setTotpSessionVerified]);
+  }, [authProcessComplete, initialUser, segments, router, isRouterReady, setTotpSessionVerified, netInfo.isConnected]);
 
 
   if (initialUser === undefined || !authProcessComplete || !isRouterReady) {
