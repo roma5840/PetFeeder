@@ -59,6 +59,7 @@ import * as Application from 'expo-application';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthContext } from '../AuthContext'; 
 import ConnectFeederModal from '../components/ConnectFeederModal'; 
+import { useNetInfo } from "@react-native-community/netinfo";
 
 const timeToMinutes = (timeStr) => {
     if (!timeStr || typeof timeStr !== 'string') return Infinity;
@@ -208,6 +209,8 @@ export default function PetFeeder() {
   const db = getDatabase();
   const user = auth.currentUser;
 
+  const netInfo = useNetInfo();
+
   interface DeviceSession {
     deviceId: string;
     userAgent: string;
@@ -232,6 +235,27 @@ export default function PetFeeder() {
 
 
   useEffect(() => {
+    if (netInfo.isConnected === false) {
+      console.log("PetFeeder Screen: No internet connection detected. Setting to offline state and clearing stale data.");
+      setIsLoading(false);
+      setIsLoadingHistory(false);
+      setIsLoadingNotes(false);
+      setFeederOnline(false);
+
+      setSchedules([]);
+      setFeedingHistory([]);
+      setPetNotes([]);
+      setNextScheduledFeedInfo({ time: "App is Offline", amount: "" });
+
+      if (statusListenerUnsubscribe.current) { statusListenerUnsubscribe.current(); statusListenerUnsubscribe.current = null; }
+      if (schedulesListenerUnsubscribe.current) { schedulesListenerUnsubscribe.current(); schedulesListenerUnsubscribe.current = null; }
+      if (historyListenerUnsubscribe.current) { historyListenerUnsubscribe.current(); historyListenerUnsubscribe.current = null; }
+      if (foodConfigListenerUnsubscribe.current) { foodConfigListenerUnsubscribe.current(); foodConfigListenerUnsubscribe.current = null; }
+      if (notesListenerUnsubscribe.current) { notesListenerUnsubscribe.current(); notesListenerUnsubscribe.current = null; }
+      
+      return;
+    }
+
     if (!user || !isTotpSessionVerified) {
         console.log("useEffect: No user found, skipping listener attachment.");
         setIsLoading(false);
@@ -473,7 +497,7 @@ export default function PetFeeder() {
         if (foodConfigListenerUnsubscribe.current) { foodConfigListenerUnsubscribe.current(); foodConfigListenerUnsubscribe.current = null; }
         if (notesListenerUnsubscribe.current) { notesListenerUnsubscribe.current(); notesListenerUnsubscribe.current = null; }
     };
-  }, [user, db, calculateRecommendedWeight, isTotpSessionVerified]);
+  }, [user, db, calculateRecommendedWeight, isTotpSessionVerified, netInfo.isConnected]);
 
   useEffect(() => {
     if (user) {
