@@ -76,10 +76,10 @@ export default function ConnectFeederModal({ onClose }: ConnectFeederModalProps)
     setIsConnecting(true);
 
     try {
-      console.log("Verifying user password before sending to device...");
-      const credential = EmailAuthProvider.credential(user.email, userPassword);
-      await reauthenticateWithCredential(user, credential);
-      console.log("Password verified successfully.");
+      // console.log("Verifying user password before sending to device...");
+      // const credential = EmailAuthProvider.credential(user.email, userPassword);
+      // await reauthenticateWithCredential(user, credential);
+      // console.log("Password verified successfully.");
 
       const formData = new URLSearchParams();
       formData.append('ssid', ssid);
@@ -117,9 +117,11 @@ export default function ConnectFeederModal({ onClose }: ConnectFeederModalProps)
           'The feeder is rebooting and should appear online shortly. Please reconnect your phone to your home WiFi.',
           [{ text: 'OK', onPress: onClose }]
         );
-      } else if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-        Alert.alert('Incorrect Password', 'The account password you entered is incorrect. Please try again.');
-      } else {
+      } 
+      // else if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+      //   Alert.alert('Incorrect Password', 'The account password you entered is incorrect. Please try again.');
+      // } 
+      else {
         console.error('Error connecting to feeder or re-authenticating:', error);
         Alert.alert(
           'Connection Failed',
