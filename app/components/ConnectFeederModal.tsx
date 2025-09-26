@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,9 @@ import { getAuth } from 'firebase/auth';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useNetInfo } from '@react-native-community/netinfo';
 import * as Location from 'expo-location';
+import NetInfo from '@react-native-community/netinfo';
+import { useFocusEffect } from 'expo-router';
+
 const themeColors = {
   primary: '#7B2CBF',
   light: '#C77DFF',
@@ -42,53 +45,89 @@ export default function ConnectFeederModal({ onClose }: ConnectFeederModalProps)
   const [userPassword, setUserPassword] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
   const [isCorrectWifi, setIsCorrectWifi] = useState(false);
-  
-  // State for location permission
   const [permissionStatus, setPermissionStatus] = useState<Location.PermissionStatus | null>(null);
+  const [isCheckingWifi, setIsCheckingWifi] = useState(true);
 
   const auth = getAuth();
   const user = auth.currentUser;
   const netInfo = useNetInfo();
 
-  // useEffect to request permissions
-  useEffect(() => {
-    const requestLocationPermission = async () => {
-      let { status } = await Location.getForegroundPermissionsAsync(); // Check first
-      if (status !== 'granted') {
-        ({ status } = await Location.requestForegroundPermissionsAsync()); // Ask if not granted
-      }
-      setPermissionStatus(status);
+  const checkPermissionsAndWifi = async () => {
+    setIsCheckingWifi(true);
+    console.log("Starting permission and Wi-Fi check...");
 
-      if (status !== 'granted') {
-        Alert.alert(
-          'Permission Required',
-          'Location permission is needed to detect the feeder\'s WiFi network. Please grant this permission to continue.',
-          [
-            { text: "Cancel", style: "cancel" },
-            { text: "Open Settings", onPress: () => Linking.openSettings() }
-          ]
-        );
-      }
-    };
-    requestLocationPermission();
-  }, []);
+    let { status } = await Location.getForegroundPermissionsAsync();
 
-  useEffect(() => {
-    // Only try to check the SSID if we have location permission
-    if (Platform.OS === 'android' && permissionStatus !== 'granted') {
-        console.log("Cannot check SSID, location permission is not granted.");
-        setIsCorrectWifi(false);
-        return;
+    if (status !== 'granted') {
+      console.log("Permission not granted, requesting...");
+      ({ status } = await Location.requestForegroundPermissionsAsync());
     }
 
-    if (netInfo.type === 'wifi' && netInfo.details && netInfo.details.ssid === FEEDER_SETUP_SSID) {
-      console.log(`Correct WiFi detected: ${netInfo.details.ssid}`);
-      setIsCorrectWifi(true);
-    } else {
-      console.log(`Incorrect WiFi or no details. Type: ${netInfo.type}, SSID: ${netInfo.details?.ssid}`);
+    setPermissionStatus(status);
+
+    // Use the immediate status variable for logic, not the state
+    if (status !== 'granted') {
+      console.log("Permission was denied.");
       setIsCorrectWifi(false);
+      setIsCheckingWifi(false);
+      Alert.alert(
+        'Permission Required',
+        'Location permission is needed to detect the feeder\'s WiFi network. Please grant this permission in your phone settings to continue.',
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Open Settings", onPress: () => Linking.openSettings() }
+        ]
+      );
+      return; // Stop execution if permission is not granted
     }
-  }, [netInfo, permissionStatus]);
+
+    // If permission is granted, proceed to check Wi-Fi
+    console.log("Permission granted. Fetching network state...");
+    try {
+      const currentState = await NetInfo.fetch();
+      console.log("NetInfo state fetched:", JSON.stringify(currentState, null, 2));
+
+      if (currentState.type === 'wifi' && currentState.details?.ssid === FEEDER_SETUP_SSID) {
+        console.log(`Correct WiFi detected: ${currentState.details.ssid}`);
+        setIsCorrectWifi(true);
+      } else {
+        console.log(`Incorrect WiFi or details not available. Type: ${currentState.type}, SSID: ${currentState.details?.ssid}`);
+        setIsCorrectWifi(false);
+      }
+    } catch (error) {
+      console.error("Failed to fetch network state:", error);
+      setIsCorrectWifi(false);
+    } finally {
+      setIsCheckingWifi(false);
+    }
+  };
+  
+  // useFocusEffect runs every time the screen comes into focus.
+  // recheck if the user goes to settings to grant permission and then comes back to the app.
+  useFocusEffect(
+    useCallback(() => {
+      checkPermissionsAndWifi();
+    }, [])
+  );
+
+  // recheck wifi when the network state changes
+  // after the initial permission check is done
+  useEffect(() => {
+    if(permissionStatus === 'granted') {
+      const checkWifiStatus = async () => {
+        setIsCheckingWifi(true);
+        const currentState = await NetInfo.fetch();
+        if (currentState.type === 'wifi' && currentState.details?.ssid === FEEDER_SETUP_SSID) {
+          setIsCorrectWifi(true);
+        } else {
+          setIsCorrectWifi(false);
+        }
+        setIsCheckingWifi(false);
+      };
+      checkWifiStatus();
+    }
+  }, [netInfo.isConnected, netInfo.type, netInfo.details?.ssid, permissionStatus]);
+
 
   const handleConnect = async () => {
     if (!isCorrectWifi) {
@@ -162,13 +201,12 @@ export default function ConnectFeederModal({ onClose }: ConnectFeederModalProps)
 
   const isButtonDisabled = isConnecting || !ssid || !userPassword || !isCorrectWifi;
   
-  // Render a message if permission is not granted on Android
   const renderStep1Content = () => {
-    if (Platform.OS === 'android' && permissionStatus !== 'granted' && permissionStatus !== null) {
+    if (permissionStatus !== 'granted' && permissionStatus !== null) {
       return (
         <View style={styles.statusError}>
           <Icon name="alert-circle" size={20} color={themeColors.danger} />
-          <Text style={styles.statusText}>Location permission denied. Cannot read WiFi name.</Text>
+          <Text style={styles.statusText}>Location permission is required.</Text>
         </View>
       );
     }
@@ -177,12 +215,19 @@ export default function ConnectFeederModal({ onClose }: ConnectFeederModalProps)
         <Text style={styles.stepText}>
           Go to your phone's WiFi settings and connect to the network named <Text style={{fontWeight: 'bold'}}>{FEEDER_SETUP_SSID}</Text>.
         </Text>
-        <View style={[styles.statusContainer, isCorrectWifi ? styles.statusSuccess : styles.statusError]}>
-            <Icon name={isCorrectWifi ? "checkmark-circle" : "alert-circle"} size={20} color={isCorrectWifi ? themeColors.success : themeColors.danger} />
-            <Text style={styles.statusText}>
-                {isCorrectWifi ? `Connected to "${FEEDER_SETUP_SSID}"` : "Not connected to feeder WiFi"}
-            </Text>
-        </View>
+        {isCheckingWifi ? (
+            <View style={styles.statusContainer}>
+                <ActivityIndicator size="small" color={themeColors.primary} />
+                <Text style={styles.statusText}>Checking connection...</Text>
+            </View>
+        ) : (
+            <View style={[styles.statusContainer, isCorrectWifi ? styles.statusSuccess : styles.statusError]}>
+                <Icon name={isCorrectWifi ? "checkmark-circle" : "alert-circle"} size={20} color={isCorrectWifi ? themeColors.success : themeColors.danger} />
+                <Text style={styles.statusText}>
+                    {isCorrectWifi ? `Connected to "${FEEDER_SETUP_SSID}"` : "Not connected to feeder WiFi"}
+                </Text>
+            </View>
+        )}
       </>
     );
   };
