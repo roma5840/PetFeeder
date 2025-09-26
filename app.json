@@ -2,14 +2,17 @@
   "expo": {
     "name": "ASPetFeeder",
     "slug": "ASPetFeeder",
-    "version": "1.14.6",
+    "version": "1.15.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "This app needs location access to detect the SSID of the feeder's setup WiFi network."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +22,8 @@
       "package": "com.roma5840.aspetfeeder",
       "versionCode": 1,
       "permissions": [
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
       ]
     },
     "web": {
@@ -38,7 +42,8 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-location"
     ],
     "experiments": {
       "typedRoutes": true

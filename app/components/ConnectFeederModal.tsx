@@ -8,12 +8,12 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  Linking,
 } from 'react-native';
-import { getAuth, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth'; // Import re-auth methods
+import { getAuth } from 'firebase/auth';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useNetInfo } from '@react-native-community/netinfo';
-
-// Re-using the theme colors from the main app for consistency
+import * as Location from 'expo-location';
 const themeColors = {
   primary: '#7B2CBF',
   light: '#C77DFF',
@@ -43,17 +43,52 @@ export default function ConnectFeederModal({ onClose }: ConnectFeederModalProps)
   const [isConnecting, setIsConnecting] = useState(false);
   const [isCorrectWifi, setIsCorrectWifi] = useState(false);
   
+  // State for location permission
+  const [permissionStatus, setPermissionStatus] = useState<Location.PermissionStatus | null>(null);
+
   const auth = getAuth();
   const user = auth.currentUser;
   const netInfo = useNetInfo();
 
+  // useEffect to request permissions
   useEffect(() => {
+    const requestLocationPermission = async () => {
+      let { status } = await Location.getForegroundPermissionsAsync(); // Check first
+      if (status !== 'granted') {
+        ({ status } = await Location.requestForegroundPermissionsAsync()); // Ask if not granted
+      }
+      setPermissionStatus(status);
+
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Required',
+          'Location permission is needed to detect the feeder\'s WiFi network. Please grant this permission to continue.',
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Open Settings", onPress: () => Linking.openSettings() }
+          ]
+        );
+      }
+    };
+    requestLocationPermission();
+  }, []);
+
+  useEffect(() => {
+    // Only try to check the SSID if we have location permission
+    if (Platform.OS === 'android' && permissionStatus !== 'granted') {
+        console.log("Cannot check SSID, location permission is not granted.");
+        setIsCorrectWifi(false);
+        return;
+    }
+
     if (netInfo.type === 'wifi' && netInfo.details && netInfo.details.ssid === FEEDER_SETUP_SSID) {
+      console.log(`Correct WiFi detected: ${netInfo.details.ssid}`);
       setIsCorrectWifi(true);
     } else {
+      console.log(`Incorrect WiFi or no details. Type: ${netInfo.type}, SSID: ${netInfo.details?.ssid}`);
       setIsCorrectWifi(false);
     }
-  }, [netInfo]);
+  }, [netInfo, permissionStatus]);
 
   const handleConnect = async () => {
     if (!isCorrectWifi) {
@@ -76,11 +111,6 @@ export default function ConnectFeederModal({ onClose }: ConnectFeederModalProps)
     setIsConnecting(true);
 
     try {
-      // console.log("Verifying user password before sending to device...");
-      // const credential = EmailAuthProvider.credential(user.email, userPassword);
-      // await reauthenticateWithCredential(user, credential);
-      // console.log("Password verified successfully.");
-
       const formData = new URLSearchParams();
       formData.append('ssid', ssid);
       formData.append('password', wifiPassword);
@@ -118,9 +148,6 @@ export default function ConnectFeederModal({ onClose }: ConnectFeederModalProps)
           [{ text: 'OK', onPress: onClose }]
         );
       } 
-      // else if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-      //   Alert.alert('Incorrect Password', 'The account password you entered is incorrect. Please try again.');
-      // } 
       else {
         console.error('Error connecting to feeder or re-authenticating:', error);
         Alert.alert(
@@ -134,6 +161,31 @@ export default function ConnectFeederModal({ onClose }: ConnectFeederModalProps)
   };
 
   const isButtonDisabled = isConnecting || !ssid || !userPassword || !isCorrectWifi;
+  
+  // Render a message if permission is not granted on Android
+  const renderStep1Content = () => {
+    if (Platform.OS === 'android' && permissionStatus !== 'granted' && permissionStatus !== null) {
+      return (
+        <View style={styles.statusError}>
+          <Icon name="alert-circle" size={20} color={themeColors.danger} />
+          <Text style={styles.statusText}>Location permission denied. Cannot read WiFi name.</Text>
+        </View>
+      );
+    }
+    return (
+      <>
+        <Text style={styles.stepText}>
+          Go to your phone's WiFi settings and connect to the network named <Text style={{fontWeight: 'bold'}}>{FEEDER_SETUP_SSID}</Text>.
+        </Text>
+        <View style={[styles.statusContainer, isCorrectWifi ? styles.statusSuccess : styles.statusError]}>
+            <Icon name={isCorrectWifi ? "checkmark-circle" : "alert-circle"} size={20} color={isCorrectWifi ? themeColors.success : themeColors.danger} />
+            <Text style={styles.statusText}>
+                {isCorrectWifi ? `Connected to "${FEEDER_SETUP_SSID}"` : "Not connected to feeder WiFi"}
+            </Text>
+        </View>
+      </>
+    );
+  };
 
   return (
     <View style={styles.modalOverlay}>
@@ -146,15 +198,7 @@ export default function ConnectFeederModal({ onClose }: ConnectFeederModalProps)
 
         <View style={styles.stepContainer}>
             <Text style={styles.stepHeader}>Step 1: Connect to Feeder's WiFi</Text>
-            <Text style={styles.stepText}>
-              Go to your phone's WiFi settings and connect to the network named <Text style={{fontWeight: 'bold'}}>{FEEDER_SETUP_SSID}</Text>.
-            </Text>
-            <View style={[styles.statusContainer, isCorrectWifi ? styles.statusSuccess : styles.statusError]}>
-                <Icon name={isCorrectWifi ? "checkmark-circle" : "alert-circle"} size={20} color={isCorrectWifi ? themeColors.success : themeColors.danger} />
-                <Text style={styles.statusText}>
-                    {isCorrectWifi ? `Connected to "${FEEDER_SETUP_SSID}"` : "Not connected to feeder WiFi"}
-                </Text>
-            </View>
+            {renderStep1Content()}
         </View>
 
         <View style={styles.stepContainer}>
