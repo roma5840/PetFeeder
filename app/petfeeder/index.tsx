@@ -208,6 +208,7 @@ export default function PetFeeder() {
   const auth = getAuth();
   const db = getDatabase();
   const user = auth.currentUser;
+  const FEEDER_SETUP_SSID = "PetFeeder-Setup";
 
   const netInfo = useNetInfo();
   const hasLoadedOnce = useRef(false);
@@ -236,8 +237,13 @@ export default function PetFeeder() {
 
 
   useEffect(() => {
-    if (netInfo.isConnected === false) {
-      console.log("PetFeeder Screen: No internet connection detected. Setting to offline state and clearing stale data.");
+    const isFeederSetupWifi = netInfo.type === 'wifi' && netInfo.details?.ssid === FEEDER_SETUP_SSID;
+
+    // Treat being on the feeder setup WiFi or having no internet as an offline state for Firebase purposes.
+    if (netInfo.isInternetReachable === false || isFeederSetupWifi) {
+      const reason = isFeederSetupWifi ? "on feeder setup WiFi" : `internet not reachable (isInternetReachable: ${netInfo.isInternetReachable})`;
+      console.log(`PetFeeder Screen: No internet access because ${reason}. Setting to offline state and clearing stale data.`);
+      
       setIsLoading(false);
       setIsLoadingHistory(false);
       setIsLoadingNotes(false);
@@ -501,7 +507,7 @@ export default function PetFeeder() {
         if (foodConfigListenerUnsubscribe.current) { foodConfigListenerUnsubscribe.current(); foodConfigListenerUnsubscribe.current = null; }
         if (notesListenerUnsubscribe.current) { notesListenerUnsubscribe.current(); notesListenerUnsubscribe.current = null; }
     };
-  }, [user, db, calculateRecommendedWeight, isTotpSessionVerified, netInfo.isConnected]);
+  }, [user, db, calculateRecommendedWeight, isTotpSessionVerified, netInfo]);
 
   useEffect(() => {
     if (user) {

@@ -87,8 +87,20 @@ function RootLayout() {
       return;
     }
 
-    if (netInfo.isConnected === false) {
-        console.log("_layout: No internet connection. Halting navigation logic to prevent hangs during setup.");
+    const FEEDER_SETUP_SSID = "PetFeeder-Setup";
+    const isFeederSetupWifi = netInfo.type === 'wifi' && netInfo.details?.ssid === FEEDER_SETUP_SSID;
+
+    // If on the feeder setup wifi, there's no internet
+    // navigation logic should not run that depends on firebase since it will hang
+    if (isFeederSetupWifi) {
+        console.log("_layout: Connected to feeder setup WiFi. Halting internet-dependent navigation logic.");
+        return;
+    }
+
+    // If internet is not reachable (and it's not the known setup wifi), also halt
+    // This handles offline cases
+    if (netInfo.isInternetReachable === false) {
+        console.log("_layout: Internet not reachable. Halting navigation logic to prevent hangs.");
         return;
     }
 
@@ -197,7 +209,7 @@ function RootLayout() {
         router.replace('/login');
       }
     }
-  }, [authProcessComplete, initialUser, segments, router, isRouterReady, setTotpSessionVerified, netInfo.isConnected]);
+  }, [authProcessComplete, initialUser, segments, router, isRouterReady, setTotpSessionVerified, netInfo]);
 
 
   if (initialUser === undefined || !authProcessComplete || !isRouterReady) {
