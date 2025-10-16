@@ -158,7 +158,7 @@ export default function ConnectFeederModal({ onClose }: ConnectFeederModalProps)
       formData.append('user_pass', userPassword);
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // Increased to 30 seconds from 6
 
       const response = await fetch('http://192.168.4.1/config', {
         method: 'POST',
