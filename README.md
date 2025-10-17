@@ -1,5 +1,7 @@
 ## Current Version
 
+### v16.2 - add cleartexttraffic (v16.1 increase timeout to 30 seconds)
+
 ### v13.5 - Major TOTP Backend Update
 1.  **Per-User Encrypted TOTP Secrets:**
     *   Each user's core TOTP secret (used to generate 2FA codes) is now individually encrypted at rest within their dedicated Cloudflare Durable Object instance (Old version had a specified "Master Key").
