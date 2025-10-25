@@ -88,6 +88,8 @@ export default function PetFeeder() {
   const [petName, setPetName] = useState("");
   const [petType, setPetType] = useState("");
   const [petWeight, setPetWeight] = useState("");
+  const [petGender, setPetGender] = useState("");
+  const [petBreed, setPetBreed] = useState("");
   const [recommendedWeight, setRecommendedWeight] = useState("");
   const [manualWeight, setManualWeight] = useState("");
   const [selectedTime, setSelectedTime] = useState(new Date());
@@ -319,12 +321,14 @@ export default function PetFeeder() {
             setPetName(data.petName || "Unknown");
             setPetType(data.petType || "Unknown");
             setPetWeight(data.petWeight || "");
+            setPetGender(data.petGender || "Not Set");
+            setPetBreed(data.petBreed || "Not Set");
             const recWeight = calculateRecommendedWeight(data.petWeight || "");
             setRecommendedWeight(recWeight);
             if (!manualWeight) { setManualWeight(recWeight !== "N/A" ? recWeight : "100"); }
         } else {
             console.warn(`useEffect: No base data found for user ${user.uid}. Setting defaults.`);
-            setPetName("N/A"); setPetType("N/A"); setPetWeight(""); setRecommendedWeight("N/A");
+            setPetName("N/A"); setPetType("N/A"); setPetWeight(""); setPetGender("N/A"); setPetBreed("N/A"); setRecommendedWeight("N/A");
             if (!manualWeight) setManualWeight("100");
         }
         if (!initialBaseDataFetched) {
@@ -862,7 +866,9 @@ export default function PetFeeder() {
     setTempPetDetails({
         name: petName,
         type: petType,
-        weight: petWeight
+        weight: petWeight,
+        gender: petGender,
+        breed: petBreed,
     });
     setShowSettingsModal(false);
     setShowUpdatePetModal(true);
@@ -884,7 +890,7 @@ export default function PetFeeder() {
   };
 
   const handleSaveChanges = async () => {
-    if (!tempPetDetails.name.trim() || !tempPetDetails.type.trim() || !tempPetDetails.weight.trim()) {
+    if (!tempPetDetails.name.trim() || !tempPetDetails.type.trim() || !tempPetDetails.weight.trim() || !tempPetDetails.gender || !tempPetDetails.breed.trim()) {
         Alert.alert("Missing Information", "Please fill in all pet details.");
         return;
     }
@@ -925,12 +931,16 @@ export default function PetFeeder() {
       petName: tempPetDetails.name.trim(),
       petType: tempPetDetails.type,
       petWeight: tempPetDetails.weight,
+      petGender: tempPetDetails.gender,
+      petBreed: tempPetDetails.breed.trim(),
     };
     try {
       await update(userRef, updates);
       setPetName(updates.petName);
       setPetType(updates.petType);
       setPetWeight(updates.petWeight);
+      setPetGender(updates.petGender);
+      setPetBreed(updates.petBreed);
       setRecommendedWeight(calculateRecommendedWeight(updates.petWeight));
 
       setTimeout(() => {
@@ -939,7 +949,6 @@ export default function PetFeeder() {
           "Pet details updated.",
           [ { text: "OK", onPress: () => {
                 setShowUpdatePetModal(false);
-                // setShowSettingsModal(true);
               }
             }
           ], { cancelable: false }
@@ -947,7 +956,6 @@ export default function PetFeeder() {
       }, 100);
 
     } catch (error) {
-      // console.error("Error updating pet details:", error);
       Alert.alert("Error", "Failed to update pet details.");
     } finally {
       setIsSaving(false);
@@ -2009,6 +2017,14 @@ export default function PetFeeder() {
             <Text style={styles.infoTextLabel}>Type: </Text><Text style={styles.infoTextValue}>{petType}</Text>
          </View>
          <View style={styles.detailRow}>
+            <Icon name="male-female-outline" size={20} style={styles.detailIcon} />
+            <Text style={styles.infoTextLabel}>Gender: </Text><Text style={styles.infoTextValue}>{petGender}</Text>
+         </View>
+         <View style={styles.detailRow}>
+            <Icon name="list-outline" size={20} style={styles.detailIcon} />
+            <Text style={styles.infoTextLabel}>Breed: </Text><Text style={styles.infoTextValue}>{petBreed}</Text>
+         </View>
+         <View style={styles.detailRow}>
             <Icon name="barbell-outline" size={20} style={styles.detailIcon} />
             <Text style={styles.infoTextLabel}>Weight: </Text><Text style={styles.infoTextValue}>{petWeight} kg</Text>
          </View>
@@ -2438,27 +2454,39 @@ export default function PetFeeder() {
       </Modal>
 
       {/* Update Pet Details Modal */}
-      <Modal visible={showUpdatePetModal} transparent={true} animationType="fade" onRequestClose={() => { if (!isSaving) { setShowUpdatePetModal(false); /*setShowSettingsModal(true);*/ } }}>
+      <Modal visible={showUpdatePetModal} transparent={true} animationType="fade" onRequestClose={() => { if (!isSaving) { setShowUpdatePetModal(false); } }}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <TouchableOpacity style={styles.modalBackButton} onPress={() => { setShowUpdatePetModal(false); /*setShowSettingsModal(true);*/ }} disabled={isSaving}>
+            <TouchableOpacity style={styles.modalBackButton} onPress={() => { setShowUpdatePetModal(false); }} disabled={isSaving}>
               <Icon name="arrow-back-outline" size={24} color={themeColors.primary} />
           </TouchableOpacity>
             <Icon name="create-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
             <Text style={styles.modalTitle}>Update Pet Details</Text>
             <TextInput style={styles.modalInput} placeholder="Pet Name" placeholderTextColor={themeColors.textMuted} value={tempPetDetails.name} onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, name: text })} autoCapitalize="words" maxLength={20} editable={!isSaving}/>
-          <Text style={styles.modalLabel}>Pet Type:</Text>
-          <View style={styles.petTypeSelectionContainer}>
+            
+            <Text style={styles.modalLabel}>Pet Type:</Text>
+            <View style={styles.petTypeSelectionContainer}>
               <TouchableOpacity style={[ styles.petTypeButton, tempPetDetails.type === 'Dog' && styles.petTypeButtonSelected ]} onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Dog' })} disabled={isSaving}>
-                  <Icon name="logo-octocat" size={20} style={[styles.petTypeIcon, tempPetDetails.type === 'Dog' && styles.petTypeIconSelected]} />{/* Replace with dog icon */}
                   <Text style={[ styles.petTypeButtonText, tempPetDetails.type === 'Dog' && styles.petTypeButtonTextSelected ]}>Dog</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[ styles.petTypeButton, tempPetDetails.type === 'Cat' && styles.petTypeButtonSelected ]} onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Cat' })} disabled={isSaving}>
-                    <Icon name="logo-gitlab" size={20} style={[styles.petTypeIcon, tempPetDetails.type === 'Cat' && styles.petTypeIconSelected]} />{/* Replace with cat icon */}
                     <Text style={[ styles.petTypeButtonText, tempPetDetails.type === 'Cat' && styles.petTypeButtonTextSelected ]}>Cat</Text>
               </TouchableOpacity>
-          </View>
-          <TextInput style={styles.modalInput} placeholder="Pet Weight (kg)" placeholderTextColor={themeColors.textMuted} keyboardType="decimal-pad" value={tempPetDetails.weight} onChangeText={handleTempWeightChange} editable={!isSaving}/>
+            </View>
+
+            <Text style={styles.modalLabel}>Gender:</Text>
+            <View style={styles.petTypeSelectionContainer}>
+              <TouchableOpacity style={[ styles.petTypeButton, tempPetDetails.gender === 'Male' && styles.petTypeButtonSelected ]} onPress={() => setTempPetDetails({ ...tempPetDetails, gender: 'Male' })} disabled={isSaving}>
+                  <Text style={[ styles.petTypeButtonText, tempPetDetails.gender === 'Male' && styles.petTypeButtonTextSelected ]}>Male</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[ styles.petTypeButton, tempPetDetails.gender === 'Female' && styles.petTypeButtonSelected ]} onPress={() => setTempPetDetails({ ...tempPetDetails, gender: 'Female' })} disabled={isSaving}>
+                    <Text style={[ styles.petTypeButtonText, tempPetDetails.gender === 'Female' && styles.petTypeButtonTextSelected ]}>Female</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TextInput style={styles.modalInput} placeholder="Pet Breed" placeholderTextColor={themeColors.textMuted} value={tempPetDetails.breed} onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, breed: text })} autoCapitalize="words" maxLength={30} editable={!isSaving}/>
+            <TextInput style={styles.modalInput} placeholder="Pet Weight (kg)" placeholderTextColor={themeColors.textMuted} keyboardType="decimal-pad" value={tempPetDetails.weight} onChangeText={handleTempWeightChange} editable={!isSaving}/>
+            
             <TouchableOpacity style={[styles.modalButton, styles.modalPrimaryButton, isSaving && styles.buttonDisabled]} onPress={handleSaveChanges} disabled={isSaving}>
               {isSaving ? <ActivityIndicator size="small" color="#fff" /> : <><Icon name="checkmark-circle-outline" size={20} color="#fff" style={{ marginRight: 8 }} /><Text style={styles.modalButtonText}>Save Changes</Text></>}
             </TouchableOpacity>

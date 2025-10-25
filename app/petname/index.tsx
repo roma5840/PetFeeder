@@ -1,8 +1,3 @@
-// v4 changes:
-// edit manual pet feeding grams (three digits, max 500g, no decimal)
-// add fun fact for pet weight
-// three digits and two decimal places on pet weight
-
 import { useState } from "react";
 import {
   View,
@@ -23,29 +18,29 @@ export default function PetName() {
   const { petType } = useLocalSearchParams();
   const [petName, setPetName] = useState("");
   const [petWeight, setPetWeight] = useState("");
+  const [petGender, setPetGender] = useState<string | null>(null);
+  const [petBreed, setPetBreed] = useState("");
   const router = useRouter();
 
   const handlePetWeightChange = (text) => {
-
     if (text === '') {
       setPetWeight('');
       return;
     }
-
     const regex = /^(\d{1,3}(\.\d{0,2})?)?$/;
-
     if (regex.test(text)) {
       setPetWeight(text);
     }
-
   };
 
   const handleContinue = () => {
     console.log("handleContinue triggered");
 
     const trimmedPetName = petName.trim();
-    if (!trimmedPetName || !petWeight.trim()) {
-      Alert.alert("Missing Information", "Please enter your pet's name and weight.");
+    const trimmedPetBreed = petBreed.trim();
+
+    if (!trimmedPetName || !petWeight.trim() || !petGender || !trimmedPetBreed) {
+      Alert.alert("Missing Information", "Please fill in all your pet's details, including name, gender, breed, and weight.");
       console.log("Validation failed: Missing fields");
       return;
     }
@@ -74,10 +69,16 @@ export default function PetName() {
     Keyboard.dismiss();
 
     const proceedToConfirmScreen = () => {
-        console.log("Proceeding to confirm screen with:", { petType, petName: trimmedPetName, petWeight });
+        console.log("Proceeding to confirm screen with:", { petType, petName: trimmedPetName, petWeight, petGender, petBreed: trimmedPetBreed });
         router.push({
             pathname: "/confirm",
-            params: { petType: petType || "Unknown", petName: trimmedPetName, petWeight },
+            params: { 
+                petType: petType || "Unknown", 
+                petName: trimmedPetName, 
+                petWeight,
+                petGender,
+                petBreed: trimmedPetBreed
+            },
         });
     };
 
@@ -103,9 +104,7 @@ export default function PetName() {
         console.log("Weight < 155, proceeding directly to confirm screen.");
         proceedToConfirmScreen();
     }
-
   };
-
 
   return (
     <KeyboardAvoidingView
@@ -114,15 +113,13 @@ export default function PetName() {
     >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.container}>
-
                 <Image
                     source={require('../../assets/images/logo3.png')}
                     style={styles.logoImage} 
                     resizeMode="contain"
                 />
-
                 <Text style={styles.title}>Enter Your Pet's Details</Text>
-
+                
                 <TextInput
                     style={styles.input}
                     placeholder="Enter pet name"
@@ -131,6 +128,32 @@ export default function PetName() {
                     onChangeText={setPetName}
                     autoCapitalize="words" 
                     maxLength={20}
+                />
+                
+                <Text style={styles.label}>Pet's Gender</Text>
+                <View style={styles.genderContainer}>
+                    <TouchableOpacity
+                        style={[styles.genderButton, petGender === 'Male' && styles.genderSelected]}
+                        onPress={() => setPetGender('Male')}
+                    >
+                        <Text style={styles.buttonText}>Male</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.genderButton, petGender === 'Female' && styles.genderSelected]}
+                        onPress={() => setPetGender('Female')}
+                    >
+                        <Text style={styles.buttonText}>Female</Text>
+                    </TouchableOpacity>
+                </View>
+
+                <TextInput
+                    style={styles.input}
+                    placeholder={`Enter pet breed (e.g., Golden Retriever)`}
+                    placeholderTextColor="#888"
+                    value={petBreed}
+                    onChangeText={setPetBreed}
+                    autoCapitalize="words"
+                    maxLength={30}
                 />
 
                 <TextInput
@@ -142,11 +165,10 @@ export default function PetName() {
                     onChangeText={handlePetWeightChange} 
                 />
 
-                {/* Disable button if fields are empty */}
                 <TouchableOpacity
-                    style={[styles.continueButton, (!petName.trim() || !petWeight.trim()) && styles.disabledButton]}
+                    style={[styles.continueButton, (!petName.trim() || !petWeight.trim() || !petGender || !petBreed.trim()) && styles.disabledButton]}
                     onPress={handleContinue}
-                    disabled={!petName.trim() || !petWeight.trim()} 
+                    disabled={!petName.trim() || !petWeight.trim() || !petGender || !petBreed.trim()} 
                 >
                     <Text style={styles.buttonText}>Continue</Text>
                 </TouchableOpacity>
@@ -175,6 +197,26 @@ const styles = StyleSheet.create({
     marginBottom: 30, 
     textAlign: 'center',
     color: '#333',
+  },
+  label: {
+    fontSize: 16,
+    color: '#555',
+    marginBottom: 10,
+  },
+  genderContainer: {
+    flexDirection: 'row',
+    marginBottom: 20,
+    gap: 15,
+  },
+  genderButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    backgroundColor: '#DEC9E9',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  genderSelected: {
+    backgroundColor: '#B185DB',
   },
   input: {
     width: "90%", 
