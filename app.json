@@ -2,7 +2,7 @@
   "expo": {
     "name": "ASPetFeeder",
     "slug": "ASPetFeeder",
-    "version": "1.16.3",
+    "version": "1.18",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",

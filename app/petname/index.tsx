@@ -13,13 +13,25 @@ import {
   Platform
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
+import RNPickerSelect from 'react-native-picker-select';
+import Icon from 'react-native-vector-icons/Ionicons';
+
+// Breed Lists
+const dogBreeds = [
+  'Labrador Retriever', 'German Shepherd', 'Golden Retriever', 'French Bulldog', 'Bulldog', 'Poodle', 'Beagle', 'Rottweiler', 'Dachshund', 'Siberian Husky', 'Shih Tzu', 'Chihuahua', 'Pomeranian', 'Other...'
+].sort();
+
+const catBreeds = [
+  'Domestic Shorthair', 'American Shorthair', 'Siamese', 'Ragdoll', 'Maine Coon', 'Persian', 'Bengal', 'Sphynx', 'British Shorthair', 'Scottish Fold', 'Other...'
+].sort();
 
 export default function PetName() {
   const { petType } = useLocalSearchParams();
   const [petName, setPetName] = useState("");
   const [petWeight, setPetWeight] = useState("");
   const [petGender, setPetGender] = useState<string | null>(null);
-  const [petBreed, setPetBreed] = useState("");
+  const [selectedBreed, setSelectedBreed] = useState<string | null>(null);
+  const [otherBreed, setOtherBreed] = useState("");
   const router = useRouter();
 
   const handlePetWeightChange = (text) => {
@@ -37,9 +49,12 @@ export default function PetName() {
     console.log("handleContinue triggered");
 
     const trimmedPetName = petName.trim();
-    const trimmedPetBreed = petBreed.trim();
+    let finalBreed = selectedBreed;
+    if (selectedBreed === 'Other...') {
+        finalBreed = otherBreed.trim();
+    }
 
-    if (!trimmedPetName || !petWeight.trim() || !petGender || !trimmedPetBreed) {
+    if (!trimmedPetName || !petWeight.trim() || !petGender || !finalBreed) {
       Alert.alert("Missing Information", "Please fill in all your pet's details, including name, gender, breed, and weight.");
       console.log("Validation failed: Missing fields");
       return;
@@ -69,7 +84,7 @@ export default function PetName() {
     Keyboard.dismiss();
 
     const proceedToConfirmScreen = () => {
-        console.log("Proceeding to confirm screen with:", { petType, petName: trimmedPetName, petWeight, petGender, petBreed: trimmedPetBreed });
+        console.log("Proceeding to confirm screen with:", { petType, petName: trimmedPetName, petWeight, petGender, petBreed: finalBreed });
         router.push({
             pathname: "/confirm",
             params: { 
@@ -77,7 +92,7 @@ export default function PetName() {
                 petName: trimmedPetName, 
                 petWeight,
                 petGender,
-                petBreed: trimmedPetBreed
+                petBreed: finalBreed
             },
         });
     };
@@ -105,6 +120,9 @@ export default function PetName() {
         proceedToConfirmScreen();
     }
   };
+
+  const breedItems = (petType === 'Dog' ? dogBreeds : catBreeds).map(breed => ({ label: breed, value: breed }));
+  const isContinueDisabled = !petName.trim() || !petWeight.trim() || !petGender || !selectedBreed || (selectedBreed === 'Other...' && !otherBreed.trim());
 
   return (
     <KeyboardAvoidingView
@@ -146,15 +164,30 @@ export default function PetName() {
                     </TouchableOpacity>
                 </View>
 
-                <TextInput
-                    style={styles.input}
-                    placeholder={`Enter pet breed (e.g., Golden Retriever)`}
-                    placeholderTextColor="#888"
-                    value={petBreed}
-                    onChangeText={setPetBreed}
-                    autoCapitalize="words"
-                    maxLength={30}
-                />
+                <View style={styles.pickerContainer}>
+                    <RNPickerSelect
+                        onValueChange={(value) => setSelectedBreed(value)}
+                        items={breedItems}
+                        style={pickerSelectStyles}
+                        placeholder={{ label: "Select your pet's breed...", value: null }}
+                        useNativeAndroidPickerStyle={false}
+                        Icon={() => {
+                            return <Icon name="chevron-down" size={24} color="#A06CD5" />;
+                        }}
+                    />
+                </View>
+                
+                {selectedBreed === 'Other...' && (
+                    <TextInput
+                        style={styles.input}
+                        placeholder={`Enter pet breed`}
+                        placeholderTextColor="#888"
+                        value={otherBreed}
+                        onChangeText={setOtherBreed}
+                        autoCapitalize="words"
+                        maxLength={30}
+                    />
+                )}
 
                 <TextInput
                     style={styles.input}
@@ -166,9 +199,9 @@ export default function PetName() {
                 />
 
                 <TouchableOpacity
-                    style={[styles.continueButton, (!petName.trim() || !petWeight.trim() || !petGender || !petBreed.trim()) && styles.disabledButton]}
+                    style={[styles.continueButton, isContinueDisabled && styles.disabledButton]}
                     onPress={handleContinue}
-                    disabled={!petName.trim() || !petWeight.trim() || !petGender || !petBreed.trim()} 
+                    disabled={isContinueDisabled} 
                 >
                     <Text style={styles.buttonText}>Continue</Text>
                 </TouchableOpacity>
@@ -188,7 +221,7 @@ const styles = StyleSheet.create({
   },
   logoImage: { 
     width: 200, 
-    height: 200,
+    height: 150,
     marginBottom: 20, 
   },
   title: {
@@ -217,6 +250,11 @@ const styles = StyleSheet.create({
   },
   genderSelected: {
     backgroundColor: '#B185DB',
+  },
+  pickerContainer: {
+    width: "90%",
+    maxWidth: 400,
+    marginBottom: 20,
   },
   input: {
     width: "90%", 
@@ -250,4 +288,38 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "bold"
   },
+});
+
+const pickerSelectStyles = StyleSheet.create({
+  inputIOS: {
+    fontSize: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#A06CD5',
+    borderRadius: 8,
+    color: '#333',
+    paddingRight: 30,
+    backgroundColor: '#fff',
+    textAlign: 'center',
+  },
+  inputAndroid: {
+    fontSize: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#A06CD5',
+    borderRadius: 8,
+    color: '#333',
+    paddingRight: 30,
+    backgroundColor: '#fff',
+    textAlign: 'center',
+  },
+  iconContainer: {
+    top: 13,
+    right: 15,
+  },
+  placeholder: {
+      color: '#888',
+  }
 });

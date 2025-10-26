@@ -60,6 +60,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthContext } from '../AuthContext'; 
 import ConnectFeederModal from '../components/ConnectFeederModal'; 
 import { useNetInfo } from "@react-native-community/netinfo";
+import RNPickerSelect from 'react-native-picker-select';
 
 const timeToMinutes = (timeStr) => {
     if (!timeStr || typeof timeStr !== 'string') return Infinity;
@@ -117,7 +118,7 @@ export default function PetFeeder() {
   const [newPassHasSpecialChar, setNewPassHasSpecialChar] = useState(false);
   const [newPasswordsMatch, setNewPasswordsMatch] = useState(false);
 
-  const [tempPetDetails, setTempPetDetails] = useState({ name: '', type: '', weight: '' });
+  const [tempPetDetails, setTempPetDetails] = useState({ name: '', type: '', weight: '', gender: '', breed: '' });
 
   const [feederOnline, setFeederOnline] = useState(false);
   const [lastFeedInfo, setLastFeedInfo] = useState("N/A");
@@ -214,6 +215,15 @@ export default function PetFeeder() {
 
   const netInfo = useNetInfo();
   const hasLoadedOnce = useRef(false);
+
+  const dogBreeds = [
+    'Labrador Retriever', 'German Shepherd', 'Golden Retriever', 'French Bulldog', 'Bulldog', 'Poodle', 'Beagle', 'Rottweiler', 'Dachshund', 'Siberian Husky', 'Shih Tzu', 'Chihuahua', 'Pomeranian', 'Other...'
+  ].sort();
+
+  const catBreeds = [
+    'Domestic Shorthair', 'American Shorthair', 'Siamese', 'Ragdoll', 'Maine Coon', 'Persian', 'Bengal', 'Sphynx', 'British Shorthair', 'Scottish Fold', 'Other...'
+  ].sort();
+
 
   interface DeviceSession {
     deviceId: string;
@@ -2459,17 +2469,18 @@ export default function PetFeeder() {
           <View style={styles.modalContent}>
             <TouchableOpacity style={styles.modalBackButton} onPress={() => { setShowUpdatePetModal(false); }} disabled={isSaving}>
               <Icon name="arrow-back-outline" size={24} color={themeColors.primary} />
-          </TouchableOpacity>
+            </TouchableOpacity>
             <Icon name="create-outline" size={30} color={themeColors.primary} style={{marginBottom: 10}} />
             <Text style={styles.modalTitle}>Update Pet Details</Text>
+            
             <TextInput style={styles.modalInput} placeholder="Pet Name" placeholderTextColor={themeColors.textMuted} value={tempPetDetails.name} onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, name: text })} autoCapitalize="words" maxLength={20} editable={!isSaving}/>
             
             <Text style={styles.modalLabel}>Pet Type:</Text>
             <View style={styles.petTypeSelectionContainer}>
-              <TouchableOpacity style={[ styles.petTypeButton, tempPetDetails.type === 'Dog' && styles.petTypeButtonSelected ]} onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Dog' })} disabled={isSaving}>
+              <TouchableOpacity style={[ styles.petTypeButton, tempPetDetails.type === 'Dog' && styles.petTypeButtonSelected ]} onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Dog', breed: '' })} disabled={isSaving}>
                   <Text style={[ styles.petTypeButtonText, tempPetDetails.type === 'Dog' && styles.petTypeButtonTextSelected ]}>Dog</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[ styles.petTypeButton, tempPetDetails.type === 'Cat' && styles.petTypeButtonSelected ]} onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Cat' })} disabled={isSaving}>
+              <TouchableOpacity style={[ styles.petTypeButton, tempPetDetails.type === 'Cat' && styles.petTypeButtonSelected ]} onPress={() => setTempPetDetails({ ...tempPetDetails, type: 'Cat', breed: '' })} disabled={isSaving}>
                     <Text style={[ styles.petTypeButtonText, tempPetDetails.type === 'Cat' && styles.petTypeButtonTextSelected ]}>Cat</Text>
               </TouchableOpacity>
             </View>
@@ -2483,8 +2494,50 @@ export default function PetFeeder() {
                     <Text style={[ styles.petTypeButtonText, tempPetDetails.gender === 'Female' && styles.petTypeButtonTextSelected ]}>Female</Text>
               </TouchableOpacity>
             </View>
+            
+            {(() => {
+                const breedList = tempPetDetails.type === 'Dog' ? dogBreeds : catBreeds;
+                const breedItems = breedList.map(b => ({ label: b, value: b }));
+                const isCustomBreed = tempPetDetails.breed && !breedList.includes(tempPetDetails.breed);
+                const pickerValue = isCustomBreed ? 'Other...' : tempPetDetails.breed;
 
-            <TextInput style={styles.modalInput} placeholder="Pet Breed" placeholderTextColor={themeColors.textMuted} value={tempPetDetails.breed} onChangeText={(text) => setTempPetDetails({ ...tempPetDetails, breed: text })} autoCapitalize="words" maxLength={30} editable={!isSaving}/>
+                return (
+                    <>
+                        <Text style={styles.modalLabel}>Breed:</Text>
+                        <View style={styles.pickerModalContainer}>
+                            <RNPickerSelect
+                                onValueChange={(value) => {
+                                    if (value !== 'Other...') {
+                                        setTempPetDetails(prev => ({ ...prev, breed: value }));
+                                    } else {
+                                        setTempPetDetails(prev => ({ ...prev, breed: '' }));
+                                    }
+                                }}
+                                items={breedItems}
+                                style={pickerSelectStyles}
+                                value={pickerValue}
+                                placeholder={{ label: "Select your pet's breed...", value: null }}
+                                useNativeAndroidPickerStyle={false}
+                                Icon={() => <Icon name="chevron-down" size={24} color={themeColors.primary} />}
+                            />
+                        </View>
+                        
+                        {pickerValue === 'Other...' && (
+                            <TextInput
+                                style={styles.modalInput}
+                                placeholder="Type breed here..."
+                                placeholderTextColor={themeColors.textMuted}
+                                value={isCustomBreed ? tempPetDetails.breed : ''}
+                                onChangeText={(text) => setTempPetDetails(prev => ({ ...prev, breed: text }))}
+                                autoCapitalize="words"
+                                maxLength={30}
+                                editable={!isSaving}
+                            />
+                        )}
+                    </>
+                );
+            })()}
+
             <TextInput style={styles.modalInput} placeholder="Pet Weight (kg)" placeholderTextColor={themeColors.textMuted} keyboardType="decimal-pad" value={tempPetDetails.weight} onChangeText={handleTempWeightChange} editable={!isSaving}/>
             
             <TouchableOpacity style={[styles.modalButton, styles.modalPrimaryButton, isSaving && styles.buttonDisabled]} onPress={handleSaveChanges} disabled={isSaving}>
@@ -3849,7 +3902,44 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     lineHeight: 22,
   },
+  pickerModalContainer: {
+    width: '100%',
+    marginBottom: 15,
+  },
 
 
 
+
+});
+
+const pickerSelectStyles = StyleSheet.create({
+  inputIOS: {
+    fontSize: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderWidth: 1,
+    borderColor: themeColors.borderColor,
+    borderRadius: 8,
+    color: themeColors.textPrimary,
+    paddingRight: 30,
+    backgroundColor: themeColors.background,
+  },
+  inputAndroid: {
+    fontSize: 16,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: themeColors.borderColor,
+    borderRadius: 8,
+    color: themeColors.textPrimary,
+    paddingRight: 30,
+    backgroundColor: themeColors.background,
+  },
+  iconContainer: {
+    top: 15,
+    right: 15,
+  },
+  placeholder: {
+      color: themeColors.textMuted,
+  }
 });
