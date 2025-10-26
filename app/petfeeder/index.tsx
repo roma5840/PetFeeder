@@ -2498,8 +2498,10 @@ export default function PetFeeder() {
             {(() => {
                 const breedList = tempPetDetails.type === 'Dog' ? dogBreeds : catBreeds;
                 const breedItems = breedList.map(b => ({ label: b, value: b }));
-                const isCustomBreed = tempPetDetails.breed && !breedList.includes(tempPetDetails.breed);
-                const pickerValue = isCustomBreed ? 'Other...' : tempPetDetails.breed;
+
+                const pickerValue = (tempPetDetails.breed && breedList.includes(tempPetDetails.breed))
+                    ? tempPetDetails.breed
+                    : 'Other...';
 
                 return (
                     <>
@@ -2527,7 +2529,7 @@ export default function PetFeeder() {
                                 style={styles.modalInput}
                                 placeholder="Type breed here..."
                                 placeholderTextColor={themeColors.textMuted}
-                                value={isCustomBreed ? tempPetDetails.breed : ''}
+                                value={tempPetDetails.breed || ''}
                                 onChangeText={(text) => setTempPetDetails(prev => ({ ...prev, breed: text }))}
                                 autoCapitalize="words"
                                 maxLength={30}
