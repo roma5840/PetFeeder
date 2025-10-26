@@ -18,7 +18,10 @@ The application provides a user-friendly interface for pet owners to manage feed
 <p align="center">
   <img src="https://cdn.imgchest.com/files/e74ed7d9f4f7.jpg" alt="Login Screen" width="200"/>
   <img src="https://cdn.imgchest.com/files/fd11cd7cc3e3.jpg" alt="Register Screen" width="200"/>
-  <img src="https://cdn.imgchest.com/files/172217d0bea1.jpg" alt="Dashboard" width="200"/>
+  <img src="https://cdn.imgchest.com/files/37c1ac795e41.jpg" alt="First Login" width="200"/>
+  <img src="https://cdn.imgchest.com/files/7b107b246a30.jpg" alt="Select Pet Breed" width="200"/>
+  <img src="https://cdn.imgchest.com/files/917897b37ed0.jpg" alt="Dashboard" width="200"/>
+  <img src="https://cdn.imgchest.com/files/e6cc2979d36c.jpg" alt="Edit Pet Details" width="200"/>
   <img src="https://cdn.imgchest.com/files/dd97a0a9d847.jpg" alt="Settings" width="200"/>
 </p>
 </details>
@@ -29,7 +32,7 @@ The application provides a user-friendly interface for pet owners to manage feed
 -   **Manual & Scheduled Feeding:** Instantly dispense a custom amount of food or set up multiple, recurring daily schedules.
 -   **Feeding History & Analytics:** View a detailed log of all feeding events and visualize daily consumption with an interactive line chart. History can be filtered by date range.
 -   **Hopper Management:** Easily update the current food level in the hopper or add a specific amount after refilling.
--   **Pet Profile Management:** Store and update your pet's name, type (Dog/Cat), and weight.
+-   **Pet Profile Management:** Store and update your pet's name, type (Dog/Cat), gender, breed, and weight. Includes a comprehensive dropdown list of common breeds with a custom "Other" option.
 -   **Pet Notes:** Keep track of important information about your pet with a simple note-taking feature.
 -   **Secure User Authentication:**
     -   Standard email/password registration and login.
